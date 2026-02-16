@@ -20,6 +20,8 @@ const context = await esbuild.context({
 	external: [
 		"obsidian",
 		"electron",
+		// Obsidian ships these CM6 packages at runtime.
+		// We MUST externalize them to avoid version mismatches.
 		"@codemirror/autocomplete",
 		"@codemirror/collab",
 		"@codemirror/commands",
@@ -31,7 +33,8 @@ const context = await esbuild.context({
 		"@lezer/common",
 		"@lezer/highlight",
 		"@lezer/lr",
-		...builtinModules],
+		...builtinModules,
+	],
 	format: "cjs",
 	target: "es2018",
 	logLevel: "info",
