@@ -26,6 +26,7 @@
 		"typescript-eslint": "8.35.1"
 	},
 	"dependencies": {
+		"fast-diff": "^1.3.0",
 		"fflate": "^0.8.2",
 		"obsidian": "latest",
 		"y-codemirror.next": "^0.3.5",
