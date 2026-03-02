@@ -2,7 +2,7 @@
 
 Cloudflare Worker server for the YAOS Obsidian plugin. It relays Yjs CRDT updates through a Durable Object and stores attachments plus snapshots in R2.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/kavinsood/yaos)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/kavinsood/yaos/tree/main/server)
 
 ## Architecture
 
@@ -27,9 +27,9 @@ Passing `SYNC_TOKEN` locally is optional. If you omit it, the server starts uncl
 
 ## Deploy to Cloudflare
 
-Use the **Deploy to Cloudflare** button above for the default setup.
+Use the **Deploy to Cloudflare** button above for the default setup. It targets the `server/` subdirectory so Cloudflare treats this folder as the project root.
 
-The repo-root `../wrangler.toml` defines:
+The local `wrangler.toml` in this directory defines:
 
 - the Worker entrypoint (`server/src/index.ts`)
 - the `VaultSyncServer` Durable Object binding
@@ -98,4 +98,4 @@ If you set `SYNC_TOKEN`, that environment value becomes the required token inste
 
 ## Deploy button note
 
-The canonical infrastructure config lives at the repo root in `wrangler.toml`, and the Deploy to Cloudflare button should point at the repo root.
+The canonical infrastructure config lives in this `server/` directory, and the Deploy to Cloudflare button should target the `server/` subdirectory path in GitHub.

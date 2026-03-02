@@ -92,8 +92,6 @@ async function main() {
 		WRANGLER_BIN,
 		[
 			"dev",
-			"-c",
-			"wrangler.toml",
 			"--ip",
 			"127.0.0.1",
 			"--port",
@@ -106,7 +104,7 @@ async function main() {
 			"error",
 		],
 		{
-			cwd: resolve("."),
+			cwd: resolve("server"),
 			stdio: ["ignore", "pipe", "pipe"],
 			env: process.env,
 		},

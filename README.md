@@ -10,7 +10,7 @@ That design choice is the whole point. Git, cloud drives, timer-based sync plugi
 
 For the deeper design rationale and recent hardening work, see **[ENGINEERING.md](ENGINEERING.md)**.
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/kavinsood/yaos)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/kavinsood/yaos/tree/main/server)
 
 ## Why YAOS exists
 
@@ -46,7 +46,9 @@ It keeps that footprint by externalizing Obsidian and CodeMirror, so the shipped
 
 ## One-click self-hosting
 
-The default **Deploy to Cloudflare** button above gives you the fastest supported path:
+The default **Deploy to Cloudflare** button above points Cloudflare at the `server/` subdirectory, so it treats the Worker as a standalone project.
+
+That gives you the fastest supported path:
 
 - It deploys the Worker from this repo to your Cloudflare account.
 - The default deploy is **text sync first**. No R2 bucket is required up front.

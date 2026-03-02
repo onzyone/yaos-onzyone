@@ -1,5 +1,5 @@
 name = "yaos"
-main = "server/src/index.ts"
+main = "src/index.ts"
 compatibility_date = "2026-03-02"
 
 [[durable_objects.bindings]]
