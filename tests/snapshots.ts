@@ -415,10 +415,13 @@ async function testCategory1(): Promise<void> {
 // -------------------------------------------------------------------
 
 async function serverPost(endpoint: string, body?: Record<string, unknown>): Promise<{ status: number; data: any }> {
-	const url = `${baseUrl()}/${endpoint}?token=${encodeURIComponent(TOKEN)}`;
+	const url = `${baseUrl()}/${endpoint}`;
 	const res = await fetch(url, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${TOKEN}`,
+		},
 		body: body ? JSON.stringify(body) : "{}",
 	});
 	const data = await res.json().catch(() => null);
@@ -426,8 +429,13 @@ async function serverPost(endpoint: string, body?: Record<string, unknown>): Pro
 }
 
 async function serverGet(endpoint: string): Promise<{ status: number; data: any }> {
-	const url = `${baseUrl()}/${endpoint}?token=${encodeURIComponent(TOKEN)}`;
-	const res = await fetch(url, { method: "GET" });
+	const url = `${baseUrl()}/${endpoint}`;
+	const res = await fetch(url, {
+		method: "GET",
+		headers: {
+			Authorization: `Bearer ${TOKEN}`,
+		},
+	});
 	const data = await res.json().catch(() => null);
 	return { status: res.status, data };
 }
@@ -447,8 +455,11 @@ async function testCategory2(): Promise<void> {
 	// --- Test: Auth rejection ---
 	console.log("--- Test: Auth rejection ---");
 	{
-		const badUrl = `${baseUrl()}/snapshot/list?token=wrong-token`;
-		const res = await fetch(badUrl, { method: "GET" });
+		const badUrl = `${baseUrl()}/snapshot/list`;
+		const res = await fetch(badUrl, {
+			method: "GET",
+			headers: { Authorization: "Bearer wrong-token" },
+		});
 		assertEqual(res.status, 401, "Wrong token returns 401");
 
 		const noTokenUrl = `${baseUrl()}/snapshot/list`;

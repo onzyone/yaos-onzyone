@@ -72,9 +72,15 @@ class BlobPresignClient {
 		// Do not URL-encode roomId here: websocket sync uses raw room IDs,
 		// and encoding would route HTTP requests to a different DO room.
 		return appendTraceParams(
-			`${this.host}/parties/main/${this.roomId}${endpoint}?token=${encodeURIComponent(this.token)}`,
+			`${this.host}/parties/main/${this.roomId}${endpoint}`,
 			this.trace,
 		);
+	}
+
+	private authHeaders(): Record<string, string> {
+		return {
+			Authorization: `Bearer ${this.token}`,
+		};
 	}
 
 	async presignPut(
@@ -86,6 +92,7 @@ class BlobPresignClient {
 			url: this.url("/blob/presign-put"),
 			method: "POST",
 			contentType: "application/json",
+			headers: this.authHeaders(),
 			body: JSON.stringify({ hash, contentType, contentLength }),
 		});
 		if (res.status !== 200) {
@@ -99,6 +106,7 @@ class BlobPresignClient {
 			url: this.url("/blob/presign-get"),
 			method: "POST",
 			contentType: "application/json",
+			headers: this.authHeaders(),
 			body: JSON.stringify({ hash }),
 		});
 		if (res.status !== 200) {
@@ -112,6 +120,7 @@ class BlobPresignClient {
 			url: this.url("/blob/exists"),
 			method: "POST",
 			contentType: "application/json",
+			headers: this.authHeaders(),
 			body: JSON.stringify({ hashes }),
 		});
 		if (res.status !== 200) {

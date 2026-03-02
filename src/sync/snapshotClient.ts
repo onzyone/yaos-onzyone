@@ -86,12 +86,15 @@ async function serverPost(
 	trace?: TraceHttpContext,
 ): Promise<unknown> {
 	const url = appendTraceParams(
-		`${baseUrl(settings)}/${endpoint}?token=${encodeURIComponent(settings.token)}`,
+		`${baseUrl(settings)}/${endpoint}`,
 		trace,
 	);
 	const res = await fetch(url, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: {
+			"Content-Type": "application/json",
+			Authorization: `Bearer ${settings.token}`,
+		},
 		body: body ? JSON.stringify(body) : "{}",
 	});
 	if (!res.ok) {
@@ -107,10 +110,15 @@ async function serverGet(
 	trace?: TraceHttpContext,
 ): Promise<unknown> {
 	const url = appendTraceParams(
-		`${baseUrl(settings)}/${endpoint}?token=${encodeURIComponent(settings.token)}`,
+		`${baseUrl(settings)}/${endpoint}`,
 		trace,
 	);
-	const res = await fetch(url, { method: "GET" });
+	const res = await fetch(url, {
+		method: "GET",
+		headers: {
+			Authorization: `Bearer ${settings.token}`,
+		},
+	});
 	if (!res.ok) {
 		const text = await res.text();
 		throw new Error(`Server ${endpoint} failed (${res.status}): ${text}`);
