@@ -2,7 +2,7 @@ import { Compartment, type Extension } from "@codemirror/state";
 import { EditorView, type ViewUpdate } from "@codemirror/view";
 import { yCollab, ySyncFacet } from "y-codemirror.next";
 import * as Y from "yjs";
-import type { MarkdownView } from "obsidian";
+import { Notice, type MarkdownView } from "obsidian";
 import type { VaultSync } from "./vaultSync";
 import { applyDiffToYText } from "./diff";
 import type { TraceRecord } from "../debug/trace";
@@ -92,6 +92,7 @@ export class EditorBindingManager {
 	private pendingHealthChecks = new Map<string, ReturnType<typeof setTimeout>>();
 	private healthWorkInFlight = new Set<string>();
 	private lastDeviceName = "unknown";
+	private cmDegradedWarned = false;
 
 	private readonly debug: boolean;
 
@@ -131,8 +132,10 @@ export class EditorBindingManager {
 		const cm = this.getCmView(view);
 		if (!cm) {
 			this.log(`bind: no CM EditorView for "${file.path}"`);
+			this.warnCmDegraded();
 			return;
 		}
+		this.cmDegradedWarned = false;
 		const cmId = this.getCmId(cm);
 		const leafId = (view.leaf as unknown as { id: string }).id ?? file.path;
 		const existing = this.bindings.get(leafId);
@@ -211,8 +214,10 @@ export class EditorBindingManager {
 		const cm = this.getCmView(view);
 		if (!cm) {
 			this.log(`repair: no CM EditorView for "${file.path}"`);
+			this.warnCmDegraded();
 			return false;
 		}
+		this.cmDegradedWarned = false;
 
 		const leafId = (view.leaf as unknown as { id: string }).id ?? file.path;
 		const existing = this.bindings.get(leafId);
@@ -574,13 +579,46 @@ export class EditorBindingManager {
 
 	/**
 	 * Get the CM6 EditorView from a MarkdownView.
-	 * This accesses the internal .cm property which is standard
-	 * in Obsidian's CM6 integration but not in the public API types.
+	 * This relies on Obsidian internals, so we check the current `.cm` shape
+	 * first and then fall back to a cautious heuristic search.
 	 */
 	private getCmView(view: MarkdownView): EditorView | null {
 		// eslint-disable-next-line @typescript-eslint/no-explicit-any
-		const cm = (view.editor as any)?.cm as EditorView | undefined;
-		return cm ?? null;
+		const editor = view.editor as any;
+		if (!editor) return null;
+
+		if (editor.cm?.dispatch) return editor.cm as EditorView;
+		if (editor._cm?.dispatch) return editor._cm as EditorView;
+		if (editor.editorView?.dispatch) return editor.editorView as EditorView;
+
+		for (const key of Object.keys(editor)) {
+			const prop = editor[key];
+			if (
+				prop
+				&& typeof prop === "object"
+				&& typeof prop.dispatch === "function"
+				&& prop.state
+				&& prop.dom
+			) {
+				return prop as EditorView;
+			}
+		}
+
+		return null;
+	}
+
+	private warnCmDegraded(): void {
+		if (this.cmDegradedWarned) return;
+		this.cmDegradedWarned = true;
+		new Notice(
+			"Vault CRDT Sync: Obsidian may have changed an internal editor API. " +
+			"Live collaborative editing is unavailable. Background sync may still continue, " +
+			"but live cursors and editor binding are degraded. Please check for a plugin update.",
+			10000,
+		);
+		console.error(
+			"[vault-crdt-sync] Critical: Could not locate CodeMirror 6 EditorView. Live binding disabled.",
+		);
 	}
 
 	private getCmId(cm: EditorView): string {
