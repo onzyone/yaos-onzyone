@@ -71,7 +71,6 @@ If you want attachments and snapshots later:
 1. Create an R2 bucket in the Cloudflare dashboard.
 2. Open your Worker in **Workers & Pages**.
 3. Add an R2 binding named `YAOS_BUCKET`.
-4. Redeploy.
 
 The same Worker will then begin reporting attachments and snapshots as available.
 
