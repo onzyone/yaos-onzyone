@@ -9,6 +9,10 @@ interface RunningPageOptions {
 	snapshots: boolean;
 }
 
+interface MobileSetupPageOptions {
+	host: string;
+}
+
 function escapeHtml(value: string): string {
 	return value
 		.replace(/&/g, "&amp;")
@@ -22,409 +26,345 @@ const DEPLOY_REPO = "kavinsood/yaos";
 
 export function renderSetupPage(options: SetupPageOptions): string {
 	const safeHost = escapeHtml(options.host);
-	const releaseZipUrl = "https://github.com/kavinsood/yaos/releases/latest/download/yaos.zip";
+	const releaseZipUrl =
+		"https://github.com/kavinsood/yaos/releases/latest/download/yaos.zip";
+
+	// Cleaned up the installation copy slightly for better reading
 	const installationStep = IS_MARKETPLACE_APPROVED
-		? `<div class="step">
-              <strong>Step 1: Install YAOS plugin</strong>
+		? `<div class="step-text">
               In Obsidian, open <em>Settings → Community plugins</em>, search for <strong>YAOS</strong>, install it, and make sure it is <strong>enabled</strong>.
-            </div>`
-		: `<div class="step">
-              <strong>Step 1: Install YAOS plugin (beta via BRAT)</strong>
+           </div>`
+		: `<div class="step-text">
               <ol>
-                <li>In Obsidian, open <em>Settings → Community plugins</em> and install <strong>BRAT</strong>.</li>
-                <li>Open BRAT settings, select <em>Add beta plugin</em>, then paste <code>${DEPLOY_REPO}</code>.</li>
+                <li>In Obsidian, open <em>Community plugins</em> and install <strong>BRAT</strong>.</li>
+                <li>Open BRAT settings, select <em>Add beta plugin</em>, and paste <code>${DEPLOY_REPO}</code>.</li>
                 <li>Go back to Community plugins and make sure <strong>YAOS</strong> is installed and <strong>enabled</strong>.</li>
               </ol>
-              <p class="micro-left">Prefer manual installation? <a href="${releaseZipUrl}">Download the zip here</a>.</p>
-            </div>`;
+              <p class="micro-text">Prefer manual installation? <a href="${releaseZipUrl}">Download the zip</a>.</p>
+           </div>`;
+
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Claim YAOS server</title>
+  <title>Claim YAOS Server</title>
   <style>
-    :root { color-scheme: light dark; }
+    :root { color-scheme: dark; }
     body {
       margin: 0;
       font-family: ui-sans-serif, system-ui, sans-serif;
       background:
-        radial-gradient(circle at 20% 20%, rgba(123, 223, 246, 0.16), transparent 38%),
-        radial-gradient(circle at 80% 0%, rgba(255, 197, 90, 0.14), transparent 30%),
-        linear-gradient(180deg, #08111d 0%, #0d1725 52%, #08111d 100%);
+        radial-gradient(circle at 20% 20%, rgba(123, 223, 246, 0.12), transparent 40%),
+        radial-gradient(circle at 80% 0%, rgba(255, 197, 90, 0.08), transparent 30%),
+        linear-gradient(180deg, #08111d 0%, #0d1725 100%);
       color: #f4f7fb;
       min-height: 100vh;
       display: grid;
       place-items: center;
       padding: 24px;
-      overflow-x: hidden;
+      box-sizing: border-box;
     }
     .card {
-      width: min(760px, 100%);
-      background: rgba(8, 17, 29, 0.92);
-      border: 1px solid rgba(161, 205, 255, 0.22);
+      width: min(640px, 100%);
+      background: rgba(8, 17, 29, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border: 1px solid rgba(161, 205, 255, 0.15);
       border-radius: 24px;
-      padding: 28px;
-      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.35);
+      padding: 32px;
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4);
       position: relative;
       overflow: hidden;
     }
-    .card::before {
-      content: "";
-      position: absolute;
-      inset: 0;
-      background: linear-gradient(115deg, transparent 28%, rgba(123, 223, 246, 0.12) 48%, transparent 68%);
-      transform: translateX(-120%);
-      opacity: 0;
-      pointer-events: none;
-    }
-    .card.claimed::before {
-      animation: sweep 1.1s ease forwards;
-    }
-    h1 { margin: 0 0 12px; font-size: 32px; }
-    p { margin: 0 0 14px; line-height: 1.5; color: #d9e6f4; }
-    .hint { font-size: 13px; color: #a9c0d8; }
-    .hero {
-      display: grid;
-      gap: 10px;
-      margin-bottom: 8px;
-    }
+    h1 { margin: 0 0 8px; font-size: 28px; font-weight: 600; letter-spacing: -0.02em; }
+    p { margin: 0; line-height: 1.5; color: #a9c0d8; }
+
+    .hero { text-align: center; margin-bottom: 32px; display: flex; flex-direction: column; align-items: center;}
     .eyebrow {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      width: fit-content;
       border-radius: 999px;
-      padding: 8px 12px;
+      padding: 6px 12px;
       background: rgba(123, 223, 246, 0.1);
-      border: 1px solid rgba(123, 223, 246, 0.18);
-      color: #bdeffd;
-      font-size: 12px;
-      letter-spacing: 0.08em;
+      border: 1px solid rgba(123, 223, 246, 0.15);
+      color: #7bdff6;
+      font-size: 11px;
+      font-weight: 600;
+      letter-spacing: 0.06em;
       text-transform: uppercase;
+      margin-bottom: 16px;
     }
-    .eyebrow::before {
-      content: "";
-      width: 8px;
-      height: 8px;
-      border-radius: 999px;
-      background: #7bdff6;
-      box-shadow: 0 0 16px rgba(123, 223, 246, 0.55);
+    .host-badge {
+      display: inline-block;
+      margin-top: 12px;
+      padding: 6px 12px;
+      background: rgba(4, 10, 18, 0.6);
+      border: 1px solid rgba(161, 205, 255, 0.1);
+      border-radius: 8px;
+      font-family: ui-monospace, monospace;
+      font-size: 12px;
+      color: #7bdff6;
     }
+
     button, a.cta {
       display: inline-flex;
       align-items: center;
       justify-content: center;
       border: 0;
-      border-radius: 999px;
-      padding: 12px 18px;
-      background: #7bdff6;
+      border-radius: 12px;
+      padding: 14px 24px;
+      background: #f4f7fb;
       color: #08111d;
-      font-weight: 700;
+      font-weight: 600;
+      font-size: 15px;
       text-decoration: none;
       cursor: pointer;
-      transition: transform 140ms ease, box-shadow 140ms ease, opacity 140ms ease;
+      transition: all 0.2s ease;
     }
-    button:hover, a.cta:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 12px 26px rgba(123, 223, 246, 0.18);
-    }
-    button[disabled] { opacity: 0.6; cursor: wait; }
-    .stack { display: grid; gap: 12px; margin-top: 18px; }
-    .panel {
-      display: none;
-      background: linear-gradient(180deg, rgba(123, 223, 246, 0.08), rgba(123, 223, 246, 0.03));
-      border: 1px solid rgba(123, 223, 246, 0.18);
-      border-radius: 18px;
-      padding: 18px;
-      opacity: 0;
-      transform: translateY(14px) scale(0.98);
-    }
-    .panel.show {
-      display: block;
-      animation: rise-in 420ms cubic-bezier(.2, .9, .2, 1) forwards;
-    }
-    code, textarea {
-      width: 100%;
-      box-sizing: border-box;
-      border-radius: 10px;
-      border: 1px solid rgba(161, 205, 255, 0.22);
-      background: rgba(4, 10, 18, 0.9);
+    button:hover, a.cta:hover { background: #ffffff; transform: translateY(-1px); box-shadow: 0 8px 20px rgba(255,255,255,0.15); }
+    button[disabled] { opacity: 0.5; cursor: not-allowed; transform: none; box-shadow: none; }
+
+    .ghost-btn {
+      background: rgba(255,255,255,0.05);
       color: #f4f7fb;
-      font-family: ui-monospace, SFMono-Regular, monospace;
-      font-size: 12px;
-      padding: 10px;
+      border: 1px solid rgba(255,255,255,0.1);
     }
-    textarea { min-height: 78px; resize: vertical; }
-    .row { display: flex; gap: 10px; flex-wrap: wrap; }
-    .hero-actions {
-      margin-top: 6px;
+    .ghost-btn:hover { background: rgba(255,255,255,0.1); }
+
+    #status { text-align: center; margin-top: 16px; font-size: 13px; color: #7bdff6; min-height: 20px; }
+
+    /* The Success State */
+    .success-flow {
+      display: none;
+      animation: fade-in 0.5s ease forwards;
     }
-    .ghost {
-      background: transparent;
-      color: #d9e6f4;
-      border: 1px solid rgba(161, 205, 255, 0.22);
+    .success-flow.show { display: block; }
+
+    .flow-step {
+      background: rgba(4, 10, 18, 0.4);
+      border: 1px solid rgba(161, 205, 255, 0.1);
+      border-radius: 16px;
+      padding: 20px;
+      margin-bottom: 16px;
     }
-    .ghost:hover {
-      box-shadow: none;
-      border-color: rgba(161, 205, 255, 0.36);
-    }
-    #status { min-height: 22px; color: #ffd8a8; margin-top: 8px; }
-    .success-layout {
-      display: grid;
-      gap: 18px;
-      align-items: start;
-    }
-    .success-header {
-      display: grid;
-      gap: 8px;
-    }
-    .success-badge {
-      display: inline-flex;
+    .step-header {
+      display: flex;
       align-items: center;
-      gap: 10px;
-      width: fit-content;
-      border-radius: 999px;
-      padding: 8px 12px;
-      background: rgba(136, 255, 184, 0.1);
-      border: 1px solid rgba(136, 255, 184, 0.22);
-      color: #c8ffd9;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .step-number {
+      width: 24px;
+      height: 24px;
+      border-radius: 50%;
+      background: #7bdff6;
+      color: #08111d;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
       font-size: 12px;
-      letter-spacing: 0.04em;
-      text-transform: uppercase;
     }
-    .success-badge::before {
-      content: "";
-      width: 10px;
-      height: 10px;
-      border-radius: 999px;
-      background: #88ffb8;
-      box-shadow: 0 0 18px rgba(136, 255, 184, 0.45);
-      animation: pulse 1.8s ease-in-out infinite;
+    .step-header h2 { margin: 0; font-size: 16px; color: #f4f7fb; font-weight: 600;}
+
+    .step-text ol { margin: 0; padding-left: 20px; color: #a9c0d8; font-size: 14px; line-height: 1.6;}
+    .step-text li { margin-bottom: 6px; }
+    .micro-text { font-size: 12px; color: #6984a3; margin-top: 12px; }
+    .micro-text a { color: #7bdff6; text-decoration: none; }
+    .micro-text a:hover { text-decoration: underline; }
+
+    .checkbox-wrapper {
+      margin-top: 16px;
+      padding: 12px 16px;
+      background: rgba(123, 223, 246, 0.05);
+      border: 1px solid rgba(123, 223, 246, 0.15);
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      cursor: pointer;
+      transition: background 0.2s ease;
     }
-    .success-grid {
-      display: grid;
-      gap: 18px;
+    .checkbox-wrapper:hover { background: rgba(123, 223, 246, 0.08); }
+    .checkbox-wrapper input { width: 18px; height: 18px; accent-color: #7bdff6; cursor: pointer;}
+    .checkbox-wrapper span { font-size: 14px; color: #f4f7fb; font-weight: 500;}
+
+    /* Step 2 states */
+    .target-actions {
+      display: flex;
+      gap: 24px;
+      margin-top: 16px;
+      opacity: 1;
+      transition: opacity 0.3s ease;
     }
-    .qr-wrap {
+    .disabled-step { opacity: 0.3; pointer-events: none; user-select: none; filter: grayscale(1); }
+
+    .action-box {
+      flex: 1;
+      background: rgba(255,255,255,0.03);
+      border: 1px dashed rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      gap: 12px;
+    }
+    .action-box p { font-size: 13px; margin-bottom: 4px;}
+
+    #qr { background: #fff; padding: 8px; border-radius: 12px; display: inline-block;}
+    #qr canvas { display: block; border-radius: 4px; width: 120px; height: 120px;}
+
+    /* Manual Fallback Accordion */
+    details {
+      margin-top: 24px;
+      background: rgba(4, 10, 18, 0.6);
+      border: 1px solid rgba(161, 205, 255, 0.1);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+    summary {
+      padding: 14px 16px;
+      font-size: 13px;
+      color: #a9c0d8;
+      cursor: pointer;
+      font-weight: 500;
+      user-select: none;
+    }
+    summary:hover { color: #f4f7fb; }
+    .manual-content {
+      padding: 0 16px 16px 16px;
+      border-top: 1px solid rgba(161, 205, 255, 0.05);
       display: grid;
       gap: 12px;
-      justify-items: center;
-      padding: 18px;
-      border-radius: 18px;
-      background: rgba(4, 10, 18, 0.55);
-      border: 1px solid rgba(161, 205, 255, 0.12);
+      margin-top: 12px;
     }
-    #qr {
-      display: grid;
-      place-items: center;
-      width: 220px;
-      min-height: 220px;
-      padding: 12px;
-      border-radius: 18px;
-      background: #f4f7fb;
-      box-sizing: border-box;
-    }
-    #qr canvas {
-      display: block;
-      width: 100%;
-      height: auto;
-      border-radius: 10px;
-    }
-    .micro {
-      margin: 0;
-      font-size: 12px;
-      color: #a9c0d8;
-      text-align: center;
-    }
-    .done {
-      display: none;
-      border-radius: 14px;
-      padding: 12px 14px;
-      background: rgba(136, 255, 184, 0.1);
-      border: 1px solid rgba(136, 255, 184, 0.24);
-      color: #c8ffd9;
-    }
-    .done.show {
-      display: block;
-    }
-    .steps {
-      display: grid;
-      gap: 10px;
-    }
-    .step {
-      border-radius: 14px;
-      padding: 12px 14px;
-      background: rgba(4, 10, 18, 0.55);
-      border: 1px solid rgba(161, 205, 255, 0.12);
-    }
-    .step strong {
-      display: block;
-      margin-bottom: 4px;
-      color: #f4f7fb;
-      font-size: 13px;
-    }
-    .step ol {
-      margin: 0;
-      padding-left: 18px;
-      color: #d9e6f4;
-      line-height: 1.45;
-    }
-    .step li + li {
-      margin-top: 6px;
-    }
-    .micro-left {
-      margin: 10px 0 0;
-      font-size: 12px;
-      color: #a9c0d8;
-    }
-    .micro-left a {
-      color: #bdeffd;
-    }
-    .ack {
-      border-radius: 14px;
-      padding: 12px 14px;
-      border: 1px solid rgba(161, 205, 255, 0.2);
-      background: rgba(4, 10, 18, 0.45);
+    .manual-row {
       display: flex;
+      align-items: center;
       gap: 10px;
-      align-items: flex-start;
     }
-    .ack input[type="checkbox"] {
-      margin-top: 2px;
+    .manual-label {
+      display: block;
+      font-size: 11px;
+      color: #6984a3;
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
     }
-    .step2 {
-      border-radius: 14px;
-      padding: 12px;
-      border: 1px solid rgba(161, 205, 255, 0.2);
-      background: rgba(4, 10, 18, 0.45);
-      opacity: 1;
-      transition: opacity 120ms ease;
-    }
-    .step2.disabled {
-      opacity: 0.45;
-    }
-    .step2.disabled .cta,
-    .step2.disabled button,
-    .step2.disabled textarea {
-      pointer-events: none;
-    }
-    .warning {
-      margin: 0;
-      border-radius: 12px;
+    .manual-content input {
+      flex: 1;
+      background: rgba(0,0,0,0.5);
+      border: 1px solid rgba(255,255,255,0.1);
+      color: #7bdff6;
+      font-family: monospace;
+      font-size: 13px;
       padding: 10px 12px;
-      background: rgba(255, 216, 168, 0.12);
-      border: 1px solid rgba(255, 216, 168, 0.35);
-      color: #ffd8a8;
-      font-size: 12px;
-      line-height: 1.4;
+      border-radius: 8px;
     }
-    @media (min-width: 780px) {
-      .success-grid {
-        grid-template-columns: minmax(0, 1.3fr) minmax(220px, 0.7fr);
-      }
-    }
-    @media (max-width: 779px) {
-      h1 { font-size: 28px; }
-      .card { padding: 22px; border-radius: 20px; }
-      #qr {
-        width: min(220px, 100%);
-        min-height: 0;
-      }
-    }
-    @keyframes rise-in {
-      from { opacity: 0; transform: translateY(14px) scale(0.98); }
-      to { opacity: 1; transform: translateY(0) scale(1); }
-    }
-    @keyframes pulse {
-      0%, 100% { transform: scale(1); opacity: 1; }
-      50% { transform: scale(1.2); opacity: 0.75; }
-    }
-    @keyframes sweep {
-      0% { transform: translateX(-120%); opacity: 0; }
-      20% { opacity: 1; }
-      100% { transform: translateX(120%); opacity: 0; }
+
+    @keyframes fade-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    @media (max-width: 600px) {
+      .target-actions { flex-direction: column; }
+      .card { padding: 24px; }
     }
   </style>
 </head>
 <body>
   <main class="card">
-    <section class="hero">
-      <div class="eyebrow">One-time setup</div>
-      <h1 id="hero-title">Claim your YAOS server</h1>
-      <p id="hero-copy">This Worker is ready for markdown sync. Claim it once, then connect Obsidian with a one-tap setup link.</p>
-      <p class="hint">Server: ${safeHost}</p>
-    </section>
-    <div id="status" aria-live="polite"></div>
-    <div class="row hero-actions">
-      <button id="claim">Claim server</button>
+
+    <div id="initial-view">
+      <section class="hero">
+        <div class="eyebrow">Zero-Config Setup</div>
+        <h1>Claim your sync server</h1>
+        <p>Your edge server is online. Claim it to generate your secure pairing token.</p>
+        <div class="host-badge">${safeHost}</div>
+      </section>
+      <div style="display: flex; justify-content: center;">
+        <button id="claim">Claim Server</button>
+      </div>
+      <div id="status" aria-live="polite"></div>
     </div>
-    <div id="success" class="panel stack">
-      <div class="success-layout">
-        <div class="success-header">
-          <div class="success-badge">Server claimed</div>
-          <p><strong>Keep this page open.</strong> Your server is ready, but Obsidian still needs to be linked.</p>
-          <p class="warning"><strong>⚠️ Save this deep link or token now.</strong> This page will lock permanently when you leave.</p>
+
+    <div id="success-flow" class="success-flow">
+      <div style="text-align: center; margin-bottom: 32px;">
+        <h1>Server Claimed!</h1>
+        <p>Keep this page open. Let's connect your vault.</p>
+      </div>
+
+      <div class="flow-step">
+        <div class="step-header">
+          <div class="step-number">1</div>
+          <h2>Get the YAOS plugin</h2>
         </div>
-        <div class="success-grid">
-          <div class="stack">
-            <div class="steps">
-              ${installationStep}
-            </div>
-            <label class="ack">
-              <input id="installed" type="checkbox" />
-              <span>I have installed and <strong>enabled</strong> the YAOS plugin in Obsidian.</span>
-            </label>
-            <div id="step2" class="step2 disabled">
-              <div class="step">
-                <strong>Step 2: Connect your vault</strong>
-                Use <em>Auto-configure Obsidian</em> on this device, or scan the QR on another device.
-              </div>
-              <div class="row">
-                <a id="open" class="cta" href="#" aria-disabled="true">Auto-configure Obsidian</a>
-                <button id="mark-ready" class="ghost" type="button">I scanned it</button>
-              </div>
-              <label>
-                <span class="hint">Token</span>
-                <textarea id="token" readonly></textarea>
-              </label>
-              <label>
-                <span class="hint">Obsidian setup link</span>
-                <textarea id="pair" readonly></textarea>
-              </label>
-              <div class="row">
-                <button id="copy-token" class="ghost" type="button">Copy token</button>
-                <button id="copy-link" class="ghost" type="button">Copy link</button>
-              </div>
-            </div>
-            <div id="done" class="done" aria-live="polite"></div>
+        ${installationStep}
+        <label class="checkbox-wrapper">
+          <input id="installed" type="checkbox" />
+          <span>I have installed and <strong>enabled</strong> YAOS.</span>
+        </label>
+      </div>
+
+      <div id="step2" class="flow-step disabled-step">
+        <div class="step-header">
+          <div class="step-number">2</div>
+          <h2>Connect Obsidian</h2>
+        </div>
+
+        <div class="target-actions">
+          <div class="action-box">
+            <p>On this device</p>
+            <a id="open" class="cta" aria-disabled="true">Auto-Configure</a>
           </div>
-          <div class="qr-wrap">
-            <div id="qr" aria-label="YAOS setup QR code"></div>
-            <p class="micro">Scan this on another device to open the same YAOS setup link in Obsidian.</p>
+          <div class="action-box">
+            <p>On a mobile device</p>
+            <div id="qr" aria-label="YAOS mobile setup QR"></div>
           </div>
         </div>
+
+        <details>
+          <summary>Advanced: Manual Setup Token</summary>
+          <div class="manual-content">
+            <div>
+              <label for="host-input" class="manual-label">Server link</label>
+              <div class="manual-row">
+                <input id="host-input" type="text" readonly />
+                <button id="copy-host" class="ghost-btn" style="padding: 10px 16px;">Copy</button>
+              </div>
+            </div>
+            <div>
+              <label for="token-input" class="manual-label">Token</label>
+              <div class="manual-row">
+                <input id="token-input" type="text" readonly />
+                <button id="copy-token" class="ghost-btn" style="padding: 10px 16px;">Copy</button>
+              </div>
+            </div>
+          </div>
+        </details>
       </div>
     </div>
+
   </main>
+
   <script src="https://cdn.jsdelivr.net/npm/qrious@4.0.2/dist/qrious.min.js"></script>
   <script>
-    const cardEl = document.querySelector(".card");
+    const initialView = document.getElementById("initial-view");
+    const successFlow = document.getElementById("success-flow");
     const claimButton = document.getElementById("claim");
     const statusEl = document.getElementById("status");
-    const successEl = document.getElementById("success");
-    const heroTitleEl = document.getElementById("hero-title");
-    const heroCopyEl = document.getElementById("hero-copy");
-    const tokenEl = document.getElementById("token");
-    const pairEl = document.getElementById("pair");
-    const openEl = document.getElementById("open");
-    const markReadyEl = document.getElementById("mark-ready");
-    const installedEl = document.getElementById("installed");
+
+    const installedCheckbox = document.getElementById("installed");
     const step2El = document.getElementById("step2");
-    const copyTokenEl = document.getElementById("copy-token");
-    const copyLinkEl = document.getElementById("copy-link");
+    const openBtn = document.getElementById("open");
     const qrEl = document.getElementById("qr");
-    const doneEl = document.getElementById("done");
+
+    const hostInput = document.getElementById("host-input");
+    const tokenInput = document.getElementById("token-input");
+    const copyHostBtn = document.getElementById("copy-host");
+    const copyTokenBtn = document.getElementById("copy-token");
 
     function randomToken() {
       const bytes = new Uint8Array(32);
@@ -432,45 +372,59 @@ export function renderSetupPage(options: SetupPageOptions): string {
       return Array.from(bytes, (value) => value.toString(16).padStart(2, "0")).join("");
     }
 
-    async function copy(text) {
-      await navigator.clipboard.writeText(text);
-      statusEl.textContent = "Copied to clipboard.";
+    function buildMobileSetupUrl(host, token) {
+      const hash = new URLSearchParams({ host: host, token: token }).toString();
+      return host + "/mobile-setup#" + hash;
     }
 
     function renderQr(text) {
-      if (!text || !qrEl || !window.QRious) {
-        return;
-      }
-      qrEl.textContent = "";
+      if (!text || !window.QRious) return;
+      qrEl.innerHTML = "";
       const canvas = document.createElement("canvas");
       qrEl.appendChild(canvas);
       new window.QRious({
         element: canvas,
         value: text,
-        size: 196,
+        size: 240,
         level: "M",
         foreground: "#08111d",
-        background: "#f4f7fb",
+        background: "#ffffff",
       });
     }
 
-    function showReadyState(message) {
-      heroTitleEl.textContent = "YAOS is ready";
-      heroCopyEl.textContent = "Server claimed and running. You can close this tab.";
-      doneEl.textContent = message;
-      doneEl.classList.add("show");
-      statusEl.textContent = "YAOS is ready. You can close this tab.";
-    }
-
-    function setStep2Enabled(enabled) {
-      step2El.classList.toggle("disabled", !enabled);
-      openEl.setAttribute("aria-disabled", String(!enabled));
-      if (!enabled) {
-        openEl.removeAttribute("href");
-      } else if (pairEl.value) {
-        openEl.href = pairEl.value;
+    // Toggle Step 2 state based on checkbox
+    installedCheckbox.addEventListener("change", (e) => {
+      const isChecked = e.target.checked;
+      if (isChecked) {
+        step2El.classList.remove("disabled-step");
+        openBtn.removeAttribute("aria-disabled");
+      } else {
+        step2El.classList.add("disabled-step");
+        openBtn.setAttribute("aria-disabled", "true");
       }
-    }
+    });
+
+    // Prevent click on auto-configure if disabled
+    openBtn.addEventListener("click", (e) => {
+      if (!installedCheckbox.checked) {
+        e.preventDefault();
+      }
+    });
+
+    copyHostBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(hostInput.value);
+      const originalText = copyHostBtn.textContent;
+      copyHostBtn.textContent = "Copied!";
+      setTimeout(() => copyHostBtn.textContent = originalText, 2000);
+    });
+
+    // Copy token logic
+    copyTokenBtn.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(tokenInput.value);
+      const originalText = copyTokenBtn.textContent;
+      copyTokenBtn.textContent = "Copied!";
+      setTimeout(() => copyTokenBtn.textContent = originalText, 2000);
+    });
 
     claimButton.addEventListener("click", async () => {
       claimButton.disabled = true;
@@ -483,36 +437,148 @@ export function renderSetupPage(options: SetupPageOptions): string {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ token }),
         });
-        const data = await res.json().catch(() => ({}));
+
         if (!res.ok) {
-          throw new Error(data && data.error ? data.error : "claim failed");
+          const data = await res.json().catch(() => ({}));
+          throw new Error(data.error || "Claim failed");
         }
 
-        tokenEl.value = token;
-        pairEl.value = data.obsidianUrl || "";
-        setStep2Enabled(Boolean(installedEl.checked));
-        successEl.classList.add("show");
-        cardEl.classList.add("claimed");
-        claimButton.closest(".hero-actions").style.display = "none";
-        renderQr(data.obsidianUrl || "");
-        statusEl.textContent = "Server claimed. Complete Step 1, then continue with Step 2 to link Obsidian.";
+        // Setup the UI state
+        hostInput.value = window.location.origin;
+        tokenInput.value = token;
+
+        // Deep link for local button
+        const deepLink = "obsidian://yaos?" + new URLSearchParams({ action: "setup", host: window.location.origin, token: token }).toString();
+        openBtn.href = deepLink;
+
+        // QR Code pointing to the trampoline page
+        renderQr(buildMobileSetupUrl(window.location.origin, token));
+
+        // Switch Views
+        initialView.style.display = "none";
+        successFlow.classList.add("show");
+
       } catch (error) {
-        statusEl.textContent = "Claim failed: " + (error && error.message ? error.message : String(error));
+        statusEl.textContent = error.message;
         claimButton.disabled = false;
       }
     });
-    installedEl.addEventListener("change", () => {
-      setStep2Enabled(installedEl.checked);
-    });
-    copyTokenEl.addEventListener("click", () => copy(tokenEl.value));
-    copyLinkEl.addEventListener("click", () => copy(pairEl.value));
-    openEl.addEventListener("click", () => {
-      if (!installedEl.checked) return;
-      showReadyState("Obsidian should open now. If it did, you can close this tab.");
-    });
-    markReadyEl.addEventListener("click", () => {
-      showReadyState("This server is paired. You can close this tab whenever you're done.");
-    });
+  </script>
+</body>
+</html>`;
+}
+
+export function renderMobileSetupPage(options: MobileSetupPageOptions): string {
+	const safeHost = escapeHtml(options.host);
+	return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Connect YAOS</title>
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0; min-height: 100vh;
+      display: grid; place-items: center; padding: 24px;
+      font-family: ui-sans-serif, system-ui, sans-serif;
+      background: #08111d; color: #f4f7fb;
+    }
+    .card {
+      width: min(400px, 100%);
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 20px; padding: 32px 24px;
+      text-align: center;
+    }
+    h1 { margin: 0 0 8px; font-size: 24px; }
+    p { margin: 0 0 24px; color: #a9c0d8; font-size: 15px; line-height: 1.5;}
+
+    .cta {
+      display: flex; align-items: center; justify-content: center;
+      width: 100%; border-radius: 12px; padding: 16px;
+      background: #7bdff6; color: #08111d;
+      font-weight: 600; font-size: 16px; text-decoration: none;
+      transition: opacity 0.2s; box-sizing: border-box;
+    }
+    .cta:active { opacity: 0.8; }
+    .cta[aria-disabled="true"] { opacity: 0.5; pointer-events: none; background: #4a5a6a;}
+
+    .status { margin-top: 16px; font-size: 13px; color: #7bdff6; min-height: 20px;}
+
+    details { margin-top: 32px; text-align: left; }
+    summary { color: #6984a3; font-size: 13px; cursor: pointer; padding: 8px 0;}
+    .manual-box {
+      margin-top: 12px; background: rgba(0,0,0,0.3);
+      padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.05);
+    }
+    .manual-box label { display: block; font-size: 11px; color: #a9c0d8; margin-bottom: 4px;}
+    .manual-box input {
+      width: 100%; background: transparent; border: none;
+      color: #7bdff6; font-family: monospace; margin-bottom: 12px;
+      font-size: 13px;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <h1>Connect YAOS</h1>
+    <p>Tap below to open Obsidian and link this vault to <strong>${safeHost}</strong>.</p>
+
+    <a id="connect-button" class="cta" href="#" aria-disabled="true">Connect Obsidian</a>
+    <div id="status" class="status">Loading setup data...</div>
+
+    <details>
+      <summary>Manual Fallback</summary>
+      <div class="manual-box">
+        <label>Host</label>
+        <input id="host-input" readonly />
+        <label>Token</label>
+        <input id="token-input" readonly />
+        <p style="font-size: 11px; margin: 0; color: #6984a3;">Copy these to YAOS settings if the button fails.</p>
+      </div>
+    </details>
+  </main>
+
+  <script>
+    const connectBtn = document.getElementById("connect-button");
+    const statusEl = document.getElementById("status");
+    const hostInput = document.getElementById("host-input");
+    const tokenInput = document.getElementById("token-input");
+
+    function parseHash() {
+      const hash = window.location.hash.startsWith("#") ? window.location.hash.slice(1) : window.location.hash;
+      const params = new URLSearchParams(hash);
+      return {
+        host: (params.get("host") || "").trim().replace(/\\/$/, ""),
+        token: (params.get("token") || "").trim()
+      };
+    }
+
+    const { host, token } = parseHash();
+
+    if (!host || !token) {
+      statusEl.textContent = "Error: Invalid setup link. Please re-scan the QR code.";
+      statusEl.style.color = "#ff6b6b";
+    } else {
+      hostInput.value = host;
+      tokenInput.value = token;
+
+      const deepLink = "obsidian://yaos?" + new URLSearchParams({ action: "setup", host, token }).toString();
+      connectBtn.href = deepLink;
+      connectBtn.removeAttribute("aria-disabled");
+
+      // Scrub the URL history to hide the token fragment immediately
+      window.history.replaceState(null, "", window.location.pathname);
+
+      statusEl.textContent = "Opening Obsidian...";
+
+      // Attempt auto-redirect, allowing a small delay for UI paint
+      setTimeout(() => {
+        window.location.href = deepLink;
+        statusEl.textContent = "If Obsidian didn't open, tap the button above.";
+      }, 300);
+    }
   </script>
 </body>
 </html>`;
@@ -520,48 +586,50 @@ export function renderSetupPage(options: SetupPageOptions): string {
 
 export function renderRunningPage(options: RunningPageOptions): string {
 	const safeHost = escapeHtml(options.host);
-	const authLabel = options.authMode === "env"
-		? "This deployment is locked by an environment token."
-		: "This deployment has already been claimed.";
+	const authLabel =
+		options.authMode === "env"
+			? "Secured by an environment token."
+			: "This server has been claimed and is locked.";
+
 	return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>YAOS server</title>
+  <title>YAOS Server Running</title>
   <style>
     body {
-      margin: 0;
-      font-family: ui-sans-serif, system-ui, sans-serif;
-      background: #09111b;
-      color: #eef5fb;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 24px;
+      margin: 0; font-family: ui-sans-serif, system-ui, sans-serif;
+      background: #08111d; color: #f4f7fb;
+      min-height: 100vh; display: grid; place-items: center; padding: 24px;
     }
     .card {
-      width: min(520px, 100%);
-      background: #101b29;
-      border: 1px solid #23384f;
-      border-radius: 18px;
-      padding: 24px;
+      width: min(480px, 100%); background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.1); border-radius: 16px; padding: 32px;
+      text-align: center;
     }
-    h1 { margin: 0 0 12px; font-size: 28px; }
-    p { margin: 0 0 10px; line-height: 1.5; }
-    ul { margin: 14px 0 0; padding-left: 18px; color: #c8d8e8; }
-    code { color: #9fe3f6; }
+    .pulse-dot {
+      width: 12px; height: 12px; background: #88ffb8; border-radius: 50%;
+      display: inline-block; margin-right: 8px;
+      box-shadow: 0 0 12px rgba(136, 255, 184, 0.5);
+    }
+    h1 { margin: 0 0 12px; font-size: 24px; display: flex; align-items: center; justify-content: center;}
+    p { margin: 0 0 24px; color: #a9c0d8; line-height: 1.5; }
+    .features { display: flex; gap: 16px; justify-content: center; }
+    .badge { padding: 6px 12px; background: rgba(255,255,255,0.05); border-radius: 999px; font-size: 12px; border: 1px solid rgba(255,255,255,0.1);}
+    .badge.active { color: #88ffb8; border-color: rgba(136, 255, 184, 0.3); }
+    .badge.inactive { color: #6984a3; }
   </style>
 </head>
 <body>
   <main class="card">
-    <h1>YAOS server is running</h1>
+    <h1><span class="pulse-dot"></span>YAOS Server is Online</h1>
     <p>${authLabel}</p>
-    <p>Host: <code>${safeHost}</code></p>
-    <ul>
-      <li>Attachments: ${options.attachments ? "enabled" : "disabled"}</li>
-      <li>Snapshots: ${options.snapshots ? "enabled" : "disabled"}</li>
-    </ul>
+    <div class="features">
+      <div class="badge active">Text Sync</div>
+      <div class="badge ${options.attachments ? "active" : "inactive"}">Attachments: ${options.attachments ? "ON" : "OFF"}</div>
+      <div class="badge ${options.snapshots ? "active" : "inactive"}">Snapshots: ${options.snapshots ? "ON" : "OFF"}</div>
+    </div>
   </main>
 </body>
 </html>`;
