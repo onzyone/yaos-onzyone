@@ -20,12 +20,14 @@ Final validated outcomes:
   - attachment sync under stress (including retries and queue durability)
   - rapid file switching/editor binding self-heal behavior
   - checkpoint/journal truncation fallback convergence
-  - snapshot and anti-resurrection defenses
+  - snapshot creation, markdown restore, and anti-resurrection defenses
 - Focused follow-up pass passed:
   - rapid-fire filesystem append burst now coalesces to a single ingest/apply
     event in the measured run
   - out-of-band (OOB) edit behavior remains stable with no tug-of-war or
     integrity drift
+  - snapshot attachment restore now passes empirically across two desktop vaults
+    with post-restore convergence and pre-restore backups
 
 Final diagnostics in latest runs show:
 
@@ -171,6 +173,42 @@ Status:
     `upload: "bay.jpg" too large (11118966 bytes), skipping`
   - default max attachment size is 10 MB (10240 KB), and `bay.jpg` exceeds it.
 
+## Snapshot and recovery follow-up pass (March 10, 2026)
+
+Two-vault desktop pass using `attachment-test` and `attachment-test copy`
+validated the remaining snapshot/recovery surface:
+
+- R2 capability auto-enable passed in both lifecycle cases:
+  - primary vault was already open when the worker gained `YAOS_BUCKET`
+  - secondary vault was opened only after redeploy
+- attachment engine auto-started without manual refresh or manual toggle
+- initial attachment upload/download converged to `blobPathCount=4` on both
+  devices with empty queues
+- daily snapshot path fired automatically once R2 became available
+- manual snapshot creation succeeded
+- snapshot restore succeeded on the secondary vault with pre-restore backups
+- attachment restore from snapshot was manually verified and final vault trees
+  converged byte-for-byte across both desktops
+
+Evidence from exported diagnostics/traces:
+
+- primary vault:
+  - `/home/kavin/attachment-test/.obsidian/plugins/yaos/diagnostics/sync-diagnostics-2026-03-10T14-23-06-853Z-device-mmkp74h1.json`
+  - `/home/kavin/attachment-test/.obsidian/plugins/yaos/diagnostics/sync-diagnostics-2026-03-10T14-29-38-322Z-device-mmkp74h1.json`
+  - `/home/kavin/attachment-test/.obsidian/plugins/yaos/diagnostics/sync-diagnostics-2026-03-10T14-32-32-221Z-device-mmkp74h1.json`
+- secondary vault:
+  - `/home/kavin/attachment-test copy/.obsidian/plugins/yaos/diagnostics/sync-diagnostics-2026-03-10T14-30-29-710Z-device-second.json`
+  - `/home/kavin/attachment-test copy/.obsidian/plugins/yaos/diagnostics/sync-diagnostics-2026-03-10T14-32-38-698Z-device-second.json`
+  - `/home/kavin/attachment-test copy/.obsidian/plugins/yaos/logs/current-state.json`
+  - `/home/kavin/attachment-test copy/.obsidian/plugins/yaos/restore-backups/2026-03-10T14-32-33-577Z/Welcome.md`
+  - `/home/kavin/attachment-test copy/.obsidian/plugins/yaos/restore-backups/2026-03-10T14-32-33-577Z/wallpapers/quota.md`
+
+Observed residual noise:
+
+- one transient `missing-sync-facet` editor health flap appears in historical
+  trace on the secondary vault and self-heals immediately via repair; it did
+  not cause data drift, queue stalls, or restore failure.
+
 ## Run A completion (March 8, 2026)
 
 - Migration/divergence mini-run is completed and passes.
@@ -220,6 +258,7 @@ are optional hardening/soak tests:
 1. Extended long-duration mobile churn soak (30-60+ minutes)
 2. Additional low-storage device matrix coverage beyond simulated quota
 3. Additional UI polish checks for oversize-attachment messaging copy
+4. Optional cold recovery-kit proof on a brand-new third vault
 
 ## Operational QA guidance (development mode)
 

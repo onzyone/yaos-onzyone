@@ -17,6 +17,8 @@ This runbook is split into two runs:
   - rapid-fire markdown append burst coalesced to a single ingest/apply event
     in measured trace
   - OOB edit path remained stable (no tug-of-war, clean integrity diffs)
+  - snapshot attachment restore passed across two desktop vaults after R2
+    auto-enable
 
 ## Final holy QA completion (March 10, 2026)
 
@@ -29,6 +31,8 @@ Completed and validated:
 5. Filesystem bridge controls
 6. Checkpoint/journal truncation fallback
 7. Migration drill + mixed-version kill switch
+8. Snapshot creation, markdown restore, and attachment restore after R2
+   capability activation
 
 Final diagnostics outcome for latest desktop run:
 
@@ -276,6 +280,15 @@ Pass criteria:
 - selected attachment refs restore and download.
 - no legacy path corruption after restore.
 
+Completion note:
+
+- validated on March 10, 2026 in two-desktop pass:
+  - primary vault auto-detected R2 after redeploy while already open
+  - secondary vault auto-detected R2 on startup after redeploy
+  - manual snapshot created successfully
+  - restore executed on secondary vault with pre-restore backups
+  - final desktop vault trees matched after restore
+
 ### 10. Long-offline anti-resurrection
 
 1. Keep Device A offline.
@@ -328,3 +341,9 @@ Final diagnostics export on both devices.
 - Fail if post-v2 snapshot restore fails.
 - Fail if mixed-version guard accepts incompatible client.
 - Fail if storage-pressure failure is silent or unclassified.
+
+## Remaining optional proof after release gate
+
+- cold recovery-kit validation on a brand-new third vault remains optional
+  rather than blocking, because hydration + restore convergence already passed
+  across paired vaults

@@ -61,6 +61,7 @@ const FAST_RECONNECT_MIN_INTERVAL_MS = 2_000;
 const MARKDOWN_DIRTY_SETTLE_MS = 350;
 const OPEN_FILE_EXTERNAL_EDIT_IDLE_GRACE_MS = 1200;
 const BOUND_RECOVERY_LOCK_MS = 1500;
+const CAPABILITY_REFRESH_INTERVAL_MS = 30_000;
 
 export default class VaultCrdtSyncPlugin extends Plugin {
 	settings: VaultSyncSettings = DEFAULT_SETTINGS;
@@ -161,6 +162,8 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 	private traceServerInFlight = false;
 	private recentServerTrace: unknown[] = [];
 	private serverCapabilities: ServerCapabilities | null = null;
+	private capabilityRefreshPromise: Promise<void> | null = null;
+	private lastCapabilityRefreshAt = 0;
 	private commandsRegistered = false;
 	private idbDegradedHandled = false;
 
@@ -311,6 +314,13 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 					} else {
 						void this.clearSavedBlobQueue();
 					}
+				}
+				const capabilityState = this.serverCapabilities;
+				const waitingForR2 =
+					!!this.settings.host &&
+					(!capabilityState || !capabilityState.attachments || !capabilityState.snapshots);
+				if (waitingForR2 && Date.now() - this.lastCapabilityRefreshAt >= CAPABILITY_REFRESH_INTERVAL_MS) {
+					void this.refreshServerCapabilities("background-poll");
 				}
 			}, 3000);
 			this.register(() => {
@@ -501,6 +511,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		if (!this.vaultSync) return;
 
 		this.log(`Running reconnect reconciliation (gen ${generation})`);
+		await this.refreshServerCapabilities("provider-sync");
 		this.validateAllOpenBindings(`reconnect-pre:${generation}`);
 
 		// Also import any untracked files from a previous conservative run
@@ -542,6 +553,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			if (!this.vaultSync) return;
 			if (this.vaultSync.fatalAuthError) return;
 
+			void this.refreshServerCapabilities("app-foregrounded");
 			this.requestFastReconnect("app-foregrounded");
 		};
 
@@ -564,6 +576,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		this.onlineHandler = () => {
 			this.log("Network online event — requesting fast reconnect");
 			this.scheduleTraceStateSnapshot("network-online");
+			void this.refreshServerCapabilities("network-online");
 			this.requestFastReconnect("network-online");
 		};
 
@@ -2303,6 +2316,14 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			DEFAULT_SETTINGS,
 			data as Partial<VaultSyncSettings>,
 		);
+		let migratedSettings = false;
+		if (typeof data?.attachmentSyncExplicitlyConfigured !== "boolean") {
+			this.settings.attachmentSyncExplicitlyConfigured = data?.enableAttachmentSync === true;
+			if (data?.enableAttachmentSync !== true) {
+				this.settings.enableAttachmentSync = true;
+			}
+			migratedSettings = true;
+		}
 		// Load disk index from plugin data (stored under _diskIndex key)
 		if (data && typeof data._diskIndex === "object" && data._diskIndex !== null) {
 			this.diskIndex = data._diskIndex as DiskIndex;
@@ -2316,6 +2337,9 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			this.savedBlobQueue = data._blobQueue as BlobQueueSnapshot;
 		}
 		this.refreshPersistedState();
+		if (migratedSettings) {
+			await this.persistPluginState();
+		}
 	}
 
 	async saveSettings() {
@@ -2451,9 +2475,25 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		this.refreshStatusBar();
 	}
 
-	async refreshServerCapabilities(): Promise<void> {
+	async refreshServerCapabilities(reason = "manual"): Promise<void> {
+		if (this.capabilityRefreshPromise) {
+			return await this.capabilityRefreshPromise;
+		}
+
+		this.capabilityRefreshPromise = this.refreshServerCapabilitiesInner(reason)
+			.finally(() => {
+				this.capabilityRefreshPromise = null;
+			});
+		return await this.capabilityRefreshPromise;
+	}
+
+	private async refreshServerCapabilitiesInner(reason: string): Promise<void> {
+		this.lastCapabilityRefreshAt = Date.now();
+		const previous = this.serverCapabilities;
+
 		if (!this.settings.host) {
 			this.serverCapabilities = null;
+			await this.handleCapabilityChange(previous, null, reason);
 			return;
 		}
 
@@ -2462,6 +2502,55 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		} catch (err) {
 			this.serverCapabilities = null;
 			this.log(`Server capability probe failed: ${err}`);
+		}
+
+		await this.handleCapabilityChange(previous, this.serverCapabilities, reason);
+	}
+
+	private async handleCapabilityChange(
+		previous: ServerCapabilities | null,
+		next: ServerCapabilities | null,
+		reason: string,
+	): Promise<void> {
+		const prevAttachments = previous?.attachments ?? null;
+		const prevSnapshots = previous?.snapshots ?? null;
+		const nextAttachments = next?.attachments ?? null;
+		const nextSnapshots = next?.snapshots ?? null;
+		const changed =
+			prevAttachments !== nextAttachments ||
+			prevSnapshots !== nextSnapshots ||
+			previous?.authMode !== next?.authMode ||
+			previous?.claimed !== next?.claimed;
+		if (!changed) return;
+
+		this.log(
+			`Server capabilities updated (${reason}): ` +
+			`claimed=${next?.claimed ?? "unknown"} auth=${next?.authMode ?? "unknown"} ` +
+			`attachments=${nextAttachments ?? "unknown"} snapshots=${nextSnapshots ?? "unknown"}`,
+		);
+		this.scheduleTraceStateSnapshot(`capabilities:${reason}`);
+
+		if (this.vaultSync) {
+			await this.refreshAttachmentSyncRuntime(`capability-change:${reason}`);
+		}
+
+		const gainedR2 = prevAttachments === false && nextAttachments === true;
+		const lostR2 = prevAttachments === true && nextAttachments === false;
+		if (gainedR2) {
+			new Notice(
+				this.settings.enableAttachmentSync
+					? "YAOS: R2 backend detected. Attachments and snapshots are now available."
+					: "YAOS: R2 backend detected. Attachments and snapshots are available if you enable them in settings.",
+				7000,
+			);
+			if (this.vaultSync?.connected && this.vaultSync.providerSynced && this.serverSupportsSnapshots) {
+				void this.triggerDailySnapshot();
+			}
+		} else if (lostR2) {
+			new Notice(
+				"YAOS: R2 backend is unavailable. Attachment transfers are paused and snapshots are unavailable.",
+				7000,
+			);
 		}
 	}
 

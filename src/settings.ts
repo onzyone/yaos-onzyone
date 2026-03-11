@@ -34,6 +34,8 @@ export interface VaultSyncSettings {
 
 	/** Enable attachment (non-markdown) sync via R2 blob store. */
 	enableAttachmentSync: boolean;
+	/** True once the user has explicitly changed the attachment sync toggle. */
+	attachmentSyncExplicitlyConfigured: boolean;
 	/** Maximum attachment size in KB. Files larger are skipped. Default 10240 (10 MB). */
 	maxAttachmentSizeKB: number;
 	/** Number of parallel upload/download slots. */
@@ -56,7 +58,8 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
 	excludePatterns: "",
 	maxFileSizeKB: 2048,
 	externalEditPolicy: "always",
-	enableAttachmentSync: false,
+	enableAttachmentSync: true,
+	attachmentSyncExplicitlyConfigured: false,
 	maxAttachmentSizeKB: 10240,
 	// requestUrl cannot be hard-aborted; default to 1 to avoid stacked zombie transfers.
 	attachmentConcurrency: 1,
