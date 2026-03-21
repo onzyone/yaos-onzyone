@@ -1,3 +1,5 @@
+import { obsidianRequest } from "../utils/http";
+
 export interface ServerCapabilities {
 	claimed: boolean;
 	authMode: "env" | "claim" | "unclaimed";
@@ -7,11 +9,12 @@ export interface ServerCapabilities {
 
 export async function fetchServerCapabilities(host: string): Promise<ServerCapabilities> {
 	const base = host.replace(/\/$/, "");
-	const res = await fetch(`${base}/api/capabilities`, {
+	const res = await obsidianRequest({
+		url: `${base}/api/capabilities`,
 		method: "GET",
 	});
-	if (!res.ok) {
+	if (res.status !== 200) {
 		throw new Error(`capabilities request failed (${res.status})`);
 	}
-	return await res.json() as ServerCapabilities;
+	return res.json as ServerCapabilities;
 }

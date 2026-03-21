@@ -14,6 +14,8 @@ import { gunzipSync } from "fflate";
 import type { VaultSyncSettings } from "../settings";
 import type { FileMeta, BlobRef } from "../types";
 import { appendTraceParams, type TraceHttpContext } from "../debug/trace";
+import { obsidianRequest } from "../utils/http";
+import { yTextToString } from "../utils/format";
 
 // -------------------------------------------------------------------
 // Types (mirrors server SnapshotIndex)
@@ -164,19 +166,21 @@ async function serverPost(
 		`${baseUrl(settings)}/${endpoint}`,
 		trace,
 	);
-	const res = await fetch(url, {
+	const res = await obsidianRequest({
+		url,
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
 			Authorization: `Bearer ${settings.token}`,
 		},
 		body: body ? JSON.stringify(body) : "{}",
+		contentType: "application/json",
 	});
-	if (!res.ok) {
-		const text = await res.text();
+	if (res.status < 200 || res.status >= 300) {
+		const text = res.text;
 		throw new Error(`Server ${endpoint} failed (${res.status}): ${text}`);
 	}
-	return res.json();
+	return res.json;
 }
 
 async function serverGet(
@@ -188,17 +192,18 @@ async function serverGet(
 		`${baseUrl(settings)}/${endpoint}`,
 		trace,
 	);
-	const res = await fetch(url, {
+	const res = await obsidianRequest({
+		url,
 		method: "GET",
 		headers: {
 			Authorization: `Bearer ${settings.token}`,
 		},
 	});
-	if (!res.ok) {
-		const text = await res.text();
+	if (res.status < 200 || res.status >= 300) {
+		const text = res.text;
 		throw new Error(`Server ${endpoint} failed (${res.status}): ${text}`);
 	}
-	return res.json();
+	return res.json;
 }
 
 // -------------------------------------------------------------------
@@ -259,17 +264,18 @@ export async function downloadSnapshot(
 		`${baseUrl(settings)}/snapshots/${encodeURIComponent(snapshot.snapshotId)}`,
 		trace,
 	);
-	const res = await fetch(url, {
+	const res = await obsidianRequest({
+		url,
 		method: "GET",
 		headers: {
 			Authorization: `Bearer ${settings.token}`,
 		},
 	});
-	if (!res.ok) {
+	if (res.status !== 200) {
 		throw new Error(`Snapshot download failed (${res.status})`);
 	}
 
-	const compressed = new Uint8Array(await res.arrayBuffer());
+	const compressed = new Uint8Array(res.arrayBuffer);
 
 	// Decompress
 	const rawUpdate = gunzipSync(compressed);
@@ -323,8 +329,8 @@ export function diffSnapshot(
 
 		const snapText = snapIdToText.get(snapFileId);
 		const liveText = liveIdToText.get(liveFileId);
-		const snapContent = snapText?.toString() ?? "";
-		const liveContent = liveText?.toString() ?? "";
+		const snapContent = yTextToString(snapText) ?? "";
+		const liveContent = yTextToString(liveText) ?? "";
 
 		if (snapContent === liveContent) {
 			diff.unchanged.push(path);
@@ -441,7 +447,7 @@ export function restoreFromSnapshot(
 
 			const snapText = snapIdToText.get(snapFileId);
 			if (!snapText) continue;
-			const snapContent = snapText.toString();
+			const snapContent = snapText.toJSON();
 
 			const liveFileId = livePaths.get(path);
 
@@ -449,7 +455,7 @@ export function restoreFromSnapshot(
 				// File still exists in live — replace content
 				const liveText = liveIdToText.get(liveFileId);
 				if (liveText) {
-					const currentContent = liveText.toString();
+					const currentContent = liveText.toJSON();
 					if (currentContent !== snapContent) {
 						liveText.delete(0, liveText.length);
 						liveText.insert(0, snapContent);

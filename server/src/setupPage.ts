@@ -700,7 +700,6 @@ export function renderMobileSetupPage(options: MobileSetupPageOptions): string {
 }
 
 export function renderRunningPage(options: RunningPageOptions): string {
-	const safeHost = escapeHtml(options.host);
 	const authLabel =
 		options.authMode === "env"
 			? "Secured by an environment token."

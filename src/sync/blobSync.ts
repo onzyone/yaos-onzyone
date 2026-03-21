@@ -15,7 +15,7 @@
  */
 import { type App, TFile, normalizePath, requestUrl, arrayBufferToHex } from "obsidian";
 import type { VaultSync } from "./vaultSync";
-import type { BlobRef } from "../types";
+import { isBlobSyncable, type BlobRef } from "../types";
 import { ORIGIN_SEED } from "../types";
 import {
 	appendTraceParams,
@@ -458,7 +458,10 @@ export class BlobSyncManager {
 	 */
 	handleFileDelete(path: string, device?: string): void {
 		// Cancel any pending upload
-		this.uploadDebounce.get(path) && clearTimeout(this.uploadDebounce.get(path));
+		const pendingUpload = this.uploadDebounce.get(path);
+		if (pendingUpload) {
+			clearTimeout(pendingUpload);
+		}
 		this.uploadDebounce.delete(path);
 		this.uploadQueue.delete(path);
 
@@ -485,17 +488,7 @@ export class BlobSyncManager {
 		// Collect non-md, non-excluded disk files
 		const diskBlobs = new Map<string, TFile>();
 		for (const file of this.app.vault.getFiles()) {
-			if (file.path.endsWith(".md")) continue;
-			if (file.path.startsWith(".obsidian/") || file.path.startsWith(".trash/")) continue;
-			// Check user exclude patterns
-			let excluded = false;
-			for (const prefix of excludePatterns) {
-				if (file.path.startsWith(prefix)) {
-					excluded = true;
-					break;
-				}
-			}
-			if (excluded) continue;
+			if (!isBlobSyncable(file.path, excludePatterns, this.app.vault.configDir)) continue;
 
 			// Size check
 			if (this.maxSize > 0 && file.stat.size > this.maxSize) continue;
@@ -1240,7 +1233,7 @@ export class BlobSyncManager {
 	private log(msg: string): void {
 		this.trace?.("blob", msg);
 		if (this.debug) {
-			console.log(`[yaos:blob] ${msg}`);
+			console.debug(`[yaos:blob] ${msg}`);
 		}
 	}
 }

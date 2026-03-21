@@ -6,6 +6,7 @@ import { type FileMeta, type BlobRef, type BlobMeta, type BlobTombstone, ORIGIN_
 import type { VaultSyncSettings } from "../settings";
 import type { TraceHttpContext, TraceRecord } from "../debug/trace";
 import { randomBase64Url } from "../utils/base64url";
+import { formatUnknown } from "../utils/format";
 
 /** Current schema version. Stored in sys.schemaVersion. */
 const SCHEMA_VERSION = 2;
@@ -28,6 +29,48 @@ const RENAME_BATCH_MS = 50;
 
 /** Reconciliation mode determines what operations are safe. */
 export type ReconcileMode = "conservative" | "authoritative";
+type FatalAuthCode = "unauthorized" | "server_misconfigured" | "unclaimed" | "update_required";
+
+interface FatalAuthMessage {
+	code: FatalAuthCode;
+	clientSchemaVersion: number | null;
+	roomSchemaVersion: number | null;
+	reason: string | null;
+}
+
+const FATAL_AUTH_CODES = new Set<FatalAuthCode>([
+	"unauthorized",
+	"server_misconfigured",
+	"unclaimed",
+	"update_required",
+]);
+
+function parseFatalAuthMessage(payload: string): FatalAuthMessage | null {
+	let parsed: unknown;
+	try {
+		parsed = JSON.parse(payload);
+	} catch {
+		return null;
+	}
+	if (!parsed || typeof parsed !== "object") return null;
+	const record = parsed as Record<string, unknown>;
+	if (record.type !== "error") return null;
+	if (typeof record.code !== "string" || !FATAL_AUTH_CODES.has(record.code as FatalAuthCode)) {
+		return null;
+	}
+	return {
+		code: record.code as FatalAuthCode,
+		clientSchemaVersion:
+			typeof record.clientSchemaVersion === "number" && Number.isInteger(record.clientSchemaVersion)
+				? record.clientSchemaVersion
+				: null,
+		roomSchemaVersion:
+			typeof record.roomSchemaVersion === "number" && Number.isInteger(record.roomSchemaVersion)
+				? record.roomSchemaVersion
+				: null,
+		reason: typeof record.reason === "string" ? record.reason : null,
+	};
+}
 
 type IndexedDbErrorKind =
 	| "quota_exceeded"
@@ -207,41 +250,23 @@ export class VaultSync {
 		});
 
 		const handleFatalAuthPayload = (payload: string) => {
-			try {
-				const msg = JSON.parse(payload);
-				if (
-					msg.type !== "error"
-					|| (
-						msg.code !== "unauthorized"
-						&& msg.code !== "server_misconfigured"
-						&& msg.code !== "unclaimed"
-						&& msg.code !== "update_required"
-					)
-				) {
-					return;
-				}
-				const firstFatal = !this._fatalAuthError;
-				this._fatalAuthError = true;
-				this._fatalAuthCode = msg.code;
-				this._fatalAuthDetails = {
-					clientSchemaVersion:
-						typeof msg.clientSchemaVersion === "number" && Number.isInteger(msg.clientSchemaVersion)
-							? msg.clientSchemaVersion
-							: null,
-					roomSchemaVersion:
-						typeof msg.roomSchemaVersion === "number" && Number.isInteger(msg.roomSchemaVersion)
-							? msg.roomSchemaVersion
-							: null,
-						reason: typeof msg.reason === "string" ? msg.reason : null,
-				};
-				if (firstFatal) {
-					this.log(`Fatal auth error: ${msg.code} — stopping reconnection`);
-				}
-				this.provider.disconnect();
-				this.resolvePendingProviderSyncWaiters(false);
-			} catch {
-				// Ignore non-JSON custom messages.
+			const msg = parseFatalAuthMessage(payload);
+			if (!msg) {
+				return;
 			}
+			const firstFatal = !this._fatalAuthError;
+			this._fatalAuthError = true;
+			this._fatalAuthCode = msg.code;
+			this._fatalAuthDetails = {
+				clientSchemaVersion: msg.clientSchemaVersion,
+				roomSchemaVersion: msg.roomSchemaVersion,
+				reason: msg.reason,
+			};
+			if (firstFatal) {
+				this.log(`Fatal auth error: ${msg.code} — stopping reconnection`);
+			}
+			this.provider.disconnect();
+			this.resolvePendingProviderSyncWaiters(false);
 		};
 
 		// y-partyserver emits "__YPS:" control payloads via "custom-message".
@@ -665,7 +690,7 @@ export class VaultSync {
 
 					this.ydoc.transact(() => {
 						if (sourceText) {
-							newText.insert(0, sourceText.toString());
+							newText.insert(0, sourceText.toJSON());
 						}
 						this.pathToId.set(dupPath, newId);
 						this.idToText.set(newId, newText);
@@ -790,7 +815,7 @@ export class VaultSync {
 				if (!crdtPaths.has(path)) continue;
 				const ytext = this.getTextForPath(path);
 				if (!ytext) continue;
-				const crdtContent = ytext.toString();
+				const crdtContent = ytext.toJSON();
 				if (crdtContent !== diskContent) {
 					updatedOnDisk.push(path);
 				}
@@ -1333,7 +1358,8 @@ export class VaultSync {
 
 	/** The IndexedDB database name for this vault. */
 	get idbName(): string {
-		return `yaos:${this.sys.get("vaultId") ?? "unknown"}`;
+		const vaultId = this.sys.get("vaultId");
+		return `yaos:${typeof vaultId === "string" ? vaultId : "unknown"}`;
 	}
 
 	/**
@@ -1384,7 +1410,7 @@ export class VaultSync {
 		return new Promise((resolve, reject) => {
 			const req = indexedDB.deleteDatabase(name);
 			req.onsuccess = () => resolve();
-			req.onerror = () => reject(req.error);
+			req.onerror = () => reject(req.error ?? new Error(`Failed to delete IndexedDB database "${name}"`));
 			req.onblocked = () => {
 				console.warn(`[yaos] IDB delete blocked for "${name}"`);
 				// Resolve anyway — it'll be deleted when connections close
@@ -1398,7 +1424,7 @@ export class VaultSync {
 		if (this._renameTimer) clearTimeout(this._renameTimer);
 		this.clearPendingRenames();
 		this.provider.destroy();
-		this.persistence.destroy();
+		void this.persistence.destroy();
 		this.ydoc.destroy();
 	}
 
@@ -1496,7 +1522,7 @@ export class VaultSync {
 			typeof (err as { message?: unknown })?.message === "string"
 				? (err as { message: string }).message
 				: err
-					? String(err)
+					? formatUnknown(err)
 					: null;
 
 		const haystack = `${name ?? ""} ${message ?? ""}`.toLowerCase();
@@ -1542,7 +1568,7 @@ export class VaultSync {
 		}
 		this.trace?.("sync", msg);
 		if (this.debug) {
-			console.log(`[yaos] ${msg}`);
+			console.debug(`[yaos] ${msg}`);
 		}
 	}
 }

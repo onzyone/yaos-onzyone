@@ -1,20 +1,37 @@
 /** Paths that are always excluded, regardless of user settings. */
-const ALWAYS_EXCLUDED = [".obsidian/", ".obsidian\\", ".trash/", ".trash\\"];
+function normalizePrefix(path: string): string {
+	return path
+		.replace(/\\/g, "/")
+		.replace(/\/{2,}/g, "/")
+		.replace(/^\.\//, "")
+		.replace(/^\/+/, "");
+}
+
+function alwaysExcludedPrefixes(configDir: string): string[] {
+	const normalizedConfigDir = normalizePrefix(configDir).replace(/\/$/, "");
+	return [
+		`${normalizedConfigDir}/`,
+		".trash/",
+	];
+}
 
 /**
  * Check if a vault-relative path should be excluded from sync.
- * Always excludes .obsidian/ and .trash/, plus any user-configured prefixes.
+ * Always excludes the current config directory and .trash/, plus any
+ * user-configured prefixes.
  *
  * @param path - Vault-relative path (e.g. "templates/daily.md")
  * @param patterns - Parsed exclude prefixes (e.g. ["templates/", ".trash/"])
+ * @param configDir - Obsidian config directory name
  * @returns true if the path matches any exclude pattern
  */
-export function isExcluded(path: string, patterns: string[]): boolean {
-	for (const prefix of ALWAYS_EXCLUDED) {
-		if (path.startsWith(prefix)) return true;
+export function isExcluded(path: string, patterns: string[], configDir: string): boolean {
+	const normalizedPath = normalizePrefix(path);
+	for (const prefix of alwaysExcludedPrefixes(configDir)) {
+		if (normalizedPath.startsWith(prefix)) return true;
 	}
 	for (const prefix of patterns) {
-		if (path.startsWith(prefix)) return true;
+		if (normalizedPath.startsWith(normalizePrefix(prefix))) return true;
 	}
 	return false;
 }

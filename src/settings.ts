@@ -85,50 +85,40 @@ function shortenMiddle(value: string, maxLength = 36): string {
 }
 
 function addSectionHeading(containerEl: HTMLElement, title: string): void {
-	containerEl.createEl("h3", { text: title });
+	new Setting(containerEl)
+		.setName(title)
+		.setHeading();
 }
 
 function addCardRow(containerEl: HTMLElement, label: string, value: string): void {
-	const row = containerEl.createDiv();
-	row.style.display = "flex";
-	row.style.justifyContent = "space-between";
-	row.style.gap = "12px";
-	row.style.padding = "8px 0";
-	row.style.borderTop = "1px solid var(--background-modifier-border)";
-
-	const labelEl = row.createSpan({ text: label });
-	labelEl.style.color = "var(--text-muted)";
-
-	const valueEl = row.createSpan({ text: value });
-	valueEl.style.fontWeight = "600";
-	valueEl.style.textAlign = "right";
-	valueEl.style.wordBreak = "break-word";
+	const row = containerEl.createDiv({ cls: "yaos-settings-card-row" });
+	row.createSpan({ text: label, cls: "yaos-settings-card-label" });
+	row.createSpan({ text: value, cls: "yaos-settings-card-value" });
 }
 
-function statusColor(state: string): string {
+function statusClass(state: string): string {
 	switch (state) {
 		case "connected":
-			return "var(--color-green)";
+			return "is-connected";
 		case "offline":
 		case "loading":
 		case "syncing":
-			return "var(--color-orange)";
+			return "is-busy";
 		case "error":
 		case "unauthorized":
-			return "var(--text-error)";
+			return "is-error";
 		default:
-			return "var(--text-muted)";
+			return "is-idle";
 	}
 }
 
 function createDetailsSection(containerEl: HTMLElement, title: string, open = false): HTMLDetailsElement {
-	const detailsEl = containerEl.createEl("details");
+	const detailsEl = containerEl.createEl("details", { cls: "yaos-settings-details" });
 	detailsEl.open = open;
-	detailsEl.style.marginBottom = "16px";
-	const summaryEl = detailsEl.createEl("summary", { text: title });
-	summaryEl.style.cursor = "pointer";
-	summaryEl.style.fontWeight = "600";
-	summaryEl.style.marginBottom = "8px";
+	detailsEl.createEl("summary", {
+		text: title,
+		cls: "yaos-settings-details-summary",
+	});
 	return detailsEl;
 }
 
@@ -146,28 +136,23 @@ class PairDeviceModal extends Modal {
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.empty();
+		contentEl.addClass("yaos-pair-device-modal");
 
 		contentEl.createEl("h3", { text: "Pair another device" });
 		contentEl.createEl("p", {
-			text: "Scan this QR code on your phone to open the YAOS setup page. If YAOS is not installed yet, the page will guide you through BRAT first.",
+			text: "Scan this setup code on your phone to open the setup page. If the plugin is not installed yet, the page will guide you through the beta install flow first.",
+			cls: "yaos-modal-copy",
 		});
 
-		const qrWrap = contentEl.createDiv();
-		qrWrap.style.display = "flex";
-		qrWrap.style.justifyContent = "center";
-		qrWrap.style.alignItems = "center";
-		qrWrap.style.padding = "12px";
-		qrWrap.style.margin = "8px 0 12px";
-		qrWrap.style.background = "var(--background-secondary)";
-		qrWrap.style.border = "1px solid var(--background-modifier-border)";
-		qrWrap.style.borderRadius = "12px";
-		qrWrap.style.minHeight = "240px";
+		const qrWrap = contentEl.createDiv({ cls: "yaos-pair-device-qr-wrap" });
 
-		const loadingEl = qrWrap.createEl("div", { text: "Generating QR code..." });
-		loadingEl.style.color = "var(--text-muted)";
+		const loadingEl = qrWrap.createEl("div", {
+			text: "Generating setup code...",
+			cls: "yaos-pair-device-loading",
+		});
 
-		this.qrCanvas = qrWrap.createEl("canvas");
-		this.qrCanvas.style.display = "none";
+		this.qrCanvas = qrWrap.createEl("canvas", { cls: "yaos-pair-device-qr-canvas" });
+		this.qrCanvas.hidden = true;
 
 		void QRCode.toCanvas(this.qrCanvas, this.mobileUrl, {
 			width: 220,
@@ -176,11 +161,11 @@ class PairDeviceModal extends Modal {
 		}).then(() => {
 			loadingEl.remove();
 			if (this.qrCanvas) {
-				this.qrCanvas.style.display = "block";
-				this.qrCanvas.setAttr("aria-label", "YAOS mobile setup QR");
+				this.qrCanvas.hidden = false;
+				this.qrCanvas.setAttr("aria-label", "Mobile setup code");
 			}
 		}).catch(() => {
-			loadingEl.setText("Could not generate QR code.");
+			loadingEl.setText("Could not generate a setup code.");
 			if (this.qrCanvas) {
 				this.qrCanvas.remove();
 				this.qrCanvas = null;
@@ -190,8 +175,8 @@ class PairDeviceModal extends Modal {
 		const primaryButtons = contentEl.createDiv({ cls: "modal-button-container" });
 		primaryButtons.createEl("button", { text: "Copy mobile setup URL" }).addEventListener("click", () => {
 			void navigator.clipboard.writeText(this.mobileUrl).then(
-				() => new Notice("YAOS: mobile setup URL copied."),
-				() => new Notice("YAOS: failed to copy mobile setup URL.", 6000),
+				() => new Notice("Mobile setup URL copied."),
+				() => new Notice("Failed to copy the mobile setup URL.", 6000),
 			);
 		});
 		primaryButtons.createEl("button", { text: "Open mobile setup page" }).addEventListener("click", () => {
@@ -199,22 +184,19 @@ class PairDeviceModal extends Modal {
 		});
 
 		const manualDetails = createDetailsSection(contentEl, "Desktop or manual setup", false);
-		const manualBody = manualDetails.createDiv();
-		manualBody.style.marginTop = "8px";
+		const manualBody = manualDetails.createDiv({ cls: "yaos-settings-details-body" });
 
 		manualBody.createEl("h4", { text: "Mobile setup URL" });
-		const mobileInput = manualBody.createEl("textarea");
+		const mobileInput = manualBody.createEl("textarea", { cls: "yaos-settings-modal-textarea" });
 		mobileInput.value = this.mobileUrl;
 		mobileInput.readOnly = true;
 		mobileInput.rows = 3;
-		mobileInput.style.width = "100%";
-		mobileInput.style.marginBottom = "8px";
 
 		const mobileButtons = manualBody.createDiv({ cls: "modal-button-container" });
 		mobileButtons.createEl("button", { text: "Copy mobile setup URL" }).addEventListener("click", () => {
 			void navigator.clipboard.writeText(this.mobileUrl).then(
-				() => new Notice("YAOS: mobile setup URL copied."),
-				() => new Notice("YAOS: failed to copy mobile setup URL.", 6000),
+				() => new Notice("Mobile setup URL copied."),
+				() => new Notice("Failed to copy the mobile setup URL.", 6000),
 			);
 		});
 		mobileButtons.createEl("button", { text: "Open mobile setup page" }).addEventListener("click", () => {
@@ -222,18 +204,16 @@ class PairDeviceModal extends Modal {
 		});
 
 		manualBody.createEl("h4", { text: "Desktop deep link" });
-		const deepInput = manualBody.createEl("textarea");
+		const deepInput = manualBody.createEl("textarea", { cls: "yaos-settings-modal-textarea" });
 		deepInput.value = this.deepLink;
 		deepInput.readOnly = true;
 		deepInput.rows = 3;
-		deepInput.style.width = "100%";
-		deepInput.style.marginBottom = "8px";
 
 		const deepButtons = manualBody.createDiv({ cls: "modal-button-container" });
 		deepButtons.createEl("button", { text: "Copy desktop deep link" }).addEventListener("click", () => {
 			void navigator.clipboard.writeText(this.deepLink).then(
-				() => new Notice("YAOS: desktop deep link copied."),
-				() => new Notice("YAOS: failed to copy desktop deep link.", 6000),
+				() => new Notice("Desktop deep link copied."),
+				() => new Notice("Failed to copy the desktop deep link.", 6000),
 			);
 		});
 
@@ -256,33 +236,31 @@ class RecoveryKitModal extends Modal {
 	onOpen(): void {
 		const { contentEl } = this;
 		contentEl.empty();
+		contentEl.addClass("yaos-recovery-kit-modal");
 
 		contentEl.createEl("h3", { text: "Backup connection details" });
 
-		const warning = contentEl.createDiv({ cls: "callout" });
+		const warning = contentEl.createDiv({ cls: "callout yaos-settings-callout" });
 		warning.setAttr("data-callout", "warning");
-		warning.style.marginBottom = "12px";
 
 		const warningTitle = warning.createDiv({ cls: "callout-title" });
 		warningTitle.createSpan({ text: "Save this somewhere safe" });
 
 		const warningBody = warning.createDiv({ cls: "callout-content" });
 		warningBody.createEl("p", {
-			text: "Save this somewhere safe (like a password manager). If you lose all your devices, you will need this exact Vault ID and Token to recover your notes from your server.",
+			text: "Save this somewhere safe, like a password manager. If you lose all your devices, you will need this exact vault ID and token to recover your notes from your server.",
 		});
 
-		const textArea = contentEl.createEl("textarea");
+		const textArea = contentEl.createEl("textarea", { cls: "yaos-settings-modal-textarea" });
 		textArea.value = this.recoveryKit;
 		textArea.readOnly = true;
 		textArea.rows = 10;
-		textArea.style.width = "100%";
-		textArea.style.marginBottom = "8px";
 
 		const buttons = contentEl.createDiv({ cls: "modal-button-container" });
 		buttons.createEl("button", { text: "Copy connection details" }).addEventListener("click", () => {
 			void navigator.clipboard.writeText(this.recoveryKit).then(
-				() => new Notice("YAOS: connection details copied."),
-				() => new Notice("YAOS: failed to copy connection details.", 6000),
+				() => new Notice("Connection details copied."),
+				() => new Notice("Failed to copy the connection details.", 6000),
 			);
 		});
 		buttons.createEl("button", { text: "Close" }).addEventListener("click", () => this.close());
@@ -304,37 +282,37 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 	display(): void {
 		const { containerEl } = this;
 		containerEl.empty();
+		containerEl.addClass("yaos-settings-tab");
 		const authMode = this.plugin.serverAuthMode;
 		const attachmentsAvailable = this.plugin.serverSupportsAttachments;
 		const setupIncomplete = !this.plugin.settings.host || !this.plugin.settings.token;
 		const syncStatus = this.plugin.getSettingsStatusSummary();
 
-		containerEl.createEl("h2", { text: "YAOS" });
+		addSectionHeading(containerEl, "YAOS");
 
 		if (setupIncomplete) {
-			const callout = containerEl.createDiv({ cls: "callout" });
+			const callout = containerEl.createDiv({ cls: "callout yaos-settings-setup-callout" });
 			callout.setAttr("data-callout", "warning");
-			callout.style.marginBottom = "16px";
 
 			const calloutTitle = callout.createDiv({ cls: "callout-title" });
 			calloutTitle.createSpan({ text: "Setup required" });
 
 			const calloutContent = callout.createDiv({ cls: "callout-content" });
 			calloutContent.createEl("p", {
-				text: "YAOS requires a free Cloudflare Worker to sync your data. It costs $0 and takes about 15 seconds.",
+				text: "This plugin needs a free sync server to sync your data. It costs $0 and takes about 15 seconds.",
 			});
 
-			const hint = calloutContent.createEl("p", {
-				text: "After deploy, open your Worker URL, claim the server, then use the YAOS setup link.",
+			calloutContent.createEl("p", {
+				text: "After deployment, open your server URL, claim the server, then use the setup link.",
+				cls: "yaos-settings-setup-hint",
 			});
-			hint.style.marginTop = "-4px";
 
 			new Setting(calloutContent)
 				.setName("Deploy your server")
-				.setDesc("Launch one-click Cloudflare deployment in your browser.")
+				.setDesc("Start one-click deployment in your browser.")
 				.addButton((button) =>
 					button
-						.setButtonText("Deploy to Cloudflare")
+						.setButtonText("Open deploy page")
 						.setCta()
 						.onClick(() => {
 							window.open(CLOUDFLARE_DEPLOY_URL, "_blank", "noopener");
@@ -345,57 +323,49 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 		if (!setupIncomplete) {
 			addSectionHeading(containerEl, "Sync status");
 
-			const card = containerEl.createDiv();
-			card.style.marginBottom = "16px";
-			card.style.padding = "14px 16px";
-			card.style.border = "1px solid var(--background-modifier-border)";
-			card.style.borderRadius = "12px";
-			card.style.background = "var(--background-secondary)";
+			const card = containerEl.createDiv({ cls: "yaos-settings-status-card" });
 
-			const statusLine = card.createDiv();
-			statusLine.style.display = "flex";
-			statusLine.style.justifyContent = "space-between";
-			statusLine.style.alignItems = "center";
-			statusLine.style.gap = "12px";
+			const statusLine = card.createDiv({ cls: "yaos-settings-status-line" });
 
-			const titleWrap = statusLine.createDiv();
-			titleWrap.createEl("div", { text: "YAOS is configured" }).style.fontWeight = "700";
-			const subtitle = titleWrap.createEl("div", {
+				const titleWrap = statusLine.createDiv({ cls: "yaos-settings-status-copy" });
+				titleWrap.createEl("div", {
+					text: "Sync is configured",
+					cls: "yaos-settings-status-title",
+				});
+			titleWrap.createEl("div", {
 				text: "Use the actions below to pair more devices or back up your connection details.",
+				cls: "yaos-settings-status-subtitle",
 			});
-			subtitle.style.color = "var(--text-muted)";
-			subtitle.style.fontSize = "12px";
-			subtitle.style.marginTop = "2px";
 
-			const badge = statusLine.createSpan({ text: syncStatus.label });
-			badge.style.color = statusColor(syncStatus.state);
-			badge.style.fontWeight = "700";
+			statusLine.createSpan({
+				text: syncStatus.label,
+				cls: `yaos-settings-status-badge ${statusClass(syncStatus.state)}`,
+			});
 
 			addCardRow(card, "Status", syncStatus.label);
 			addCardRow(card, "Server", this.plugin.settings.host);
 			addCardRow(card, "Vault", shortenMiddle(this.plugin.settings.vaultId || "(not set)"));
 			addCardRow(card, "This device", this.plugin.settings.deviceName || "(unnamed)");
 
-			const actionRow = card.createDiv({ cls: "modal-button-container" });
-			actionRow.style.marginTop = "12px";
+			const actionRow = card.createDiv({ cls: "modal-button-container yaos-settings-status-actions" });
 
-			actionRow.createEl("button", { text: "Pair another device" }).addEventListener("click", () => {
-				const deepLink = this.plugin.buildSetupDeepLink();
-				const mobileUrl = this.plugin.buildMobileSetupUrl();
-				if (!deepLink || !mobileUrl) {
-					new Notice("YAOS: configure server URL, sync token, and vault ID before pairing.", 7000);
-					return;
-				}
-				new PairDeviceModal(this.app, deepLink, mobileUrl).open();
+				actionRow.createEl("button", { text: "Pair another device" }).addEventListener("click", () => {
+					const deepLink = this.plugin.buildSetupDeepLink();
+					const mobileUrl = this.plugin.buildMobileSetupUrl();
+					if (!deepLink || !mobileUrl) {
+						new Notice("Configure the server URL, sync token, and vault ID before pairing.", 7000);
+						return;
+					}
+					new PairDeviceModal(this.app, deepLink, mobileUrl).open();
 			});
 
-			actionRow.createEl("button", { text: "Backup connection details" }).addEventListener("click", () => {
-				const recoveryKit = this.plugin.buildRecoveryKitText();
-				if (!recoveryKit) {
-					new Notice("YAOS: configure server URL, sync token, and vault ID before exporting connection details.", 7000);
-					return;
-				}
-				new RecoveryKitModal(this.app, recoveryKit).open();
+				actionRow.createEl("button", { text: "Backup connection details" }).addEventListener("click", () => {
+					const recoveryKit = this.plugin.buildRecoveryKitText();
+					if (!recoveryKit) {
+						new Notice("Configure the server URL, sync token, and vault ID before exporting connection details.", 7000);
+						return;
+					}
+					new RecoveryKitModal(this.app, recoveryKit).open();
 			});
 		}
 
@@ -414,22 +384,22 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 			);
 
 		addSectionHeading(containerEl, "What syncs");
-		new Setting(containerEl)
-			.setName("Exclude paths")
-			.setDesc("Comma-separated path prefixes to skip. Example: templates/, .trash/, daily-notes/")
-			.addText((text) =>
-				text
-					.setPlaceholder("templates/, .trash/")
-					.setValue(this.plugin.settings.excludePatterns)
-					.onChange(async (value) => {
-						this.plugin.settings.excludePatterns = value;
+			new Setting(containerEl)
+				.setName("Exclude paths")
+				.setDesc("Comma-separated path prefixes to skip. Example: templates/, .trash/, daily-notes/")
+				.addText((text) =>
+					text
+						.setPlaceholder("Example: templates/, daily-notes/")
+						.setValue(this.plugin.settings.excludePatterns)
+						.onChange(async (value) => {
+							this.plugin.settings.excludePatterns = value;
 						await this.plugin.saveSettings();
 					}),
 			);
 
-		new Setting(containerEl)
-			.setName("Max text file size (KB)")
-			.setDesc("Text files larger than this are skipped for live document sync.")
+			new Setting(containerEl)
+				.setName("Max text file size in kilobytes")
+				.setDesc("Text files larger than this are skipped for live document sync.")
 			.addText((text) =>
 				text
 					.setPlaceholder("2048")
@@ -443,18 +413,18 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		containerEl.createEl("h4", { text: "Attachments" });
+				addSectionHeading(containerEl, "Attachments");
 
-		if (this.plugin.settings.host) {
-			new Setting(containerEl)
-				.setName("Attachment storage")
-				.setDesc(
-					attachmentsAvailable
-						? "Available on this server. YAOS can sync attachments and snapshots."
-						: "Not available on this server. Add an R2 binding named YAOS_BUCKET in Cloudflare, then redeploy.",
-				)
-				.addButton((button) =>
-					button
+			if (this.plugin.settings.host) {
+				new Setting(containerEl)
+					.setName("Attachment storage")
+					.setDesc(
+						attachmentsAvailable
+							? "Available on this server. The plugin can sync attachments and snapshots."
+							: "Not available on this server. Add object storage in Cloudflare, then redeploy.",
+					)
+					.addButton((button) =>
+						button
 						.setButtonText("Refresh")
 						.onClick(async () => {
 							button.setDisabled(true);
@@ -465,21 +435,19 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 				);
 		}
 
-		if (this.plugin.settings.host && !attachmentsAvailable) {
-			const note = containerEl.createEl("p", {
-				text: "Attachment sync is unavailable on this server. Add an R2 binding named YAOS_BUCKET in Cloudflare to enable it.",
-			});
-			note.style.color = "var(--text-muted)";
-			note.style.fontSize = "12px";
-			note.style.marginTop = "-8px";
-		}
+				if (this.plugin.settings.host && !attachmentsAvailable) {
+					containerEl.createEl("p", {
+						text: "Attachment sync is unavailable on this server. Add object storage to enable it.",
+						cls: "yaos-settings-attachment-note",
+					});
+				}
 
 		if (attachmentsAvailable || !this.plugin.settings.host) {
-			new Setting(containerEl)
-				.setName("Sync attachments")
-				.setDesc(
-					"Sync images, PDFs, and other non-markdown files via object storage. Enabled by default when the server supports it.",
-				)
+				new Setting(containerEl)
+					.setName("Sync attachments")
+					.setDesc(
+						"Sync images, PDF files, and other attachments through object storage. This is enabled by default when the server supports it.",
+					)
 				.addToggle((toggle) =>
 					toggle
 						.setValue(this.plugin.settings.enableAttachmentSync)
@@ -493,10 +461,10 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 				);
 		}
 
-		if ((attachmentsAvailable || !this.plugin.settings.host) && this.plugin.settings.enableAttachmentSync) {
-			new Setting(containerEl)
-				.setName("Max attachment size (KB)")
-				.setDesc("Attachments larger than this are skipped.")
+			if ((attachmentsAvailable || !this.plugin.settings.host) && this.plugin.settings.enableAttachmentSync) {
+				new Setting(containerEl)
+					.setName("Max attachment size in kilobytes")
+					.setDesc("Attachments larger than this are skipped.")
 				.addText((text) =>
 					text
 						.setPlaceholder("10240")
@@ -540,81 +508,78 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 			);
 
 		const manualDetails = createDetailsSection(containerEl, "Manual connection", setupIncomplete);
-		const manualBody = manualDetails.createDiv();
-		manualBody.style.marginTop = "8px";
-		if (setupIncomplete) {
-			manualBody.createEl("p", {
-				text: "Claim your Worker in the browser, then use the YAOS setup link. You can also enter the connection details manually here.",
-			});
-		}
+		const manualBody = manualDetails.createDiv({ cls: "yaos-settings-details-body" });
+				if (setupIncomplete) {
+					manualBody.createEl("p", {
+						text: "Claim your server in the browser, then use the setup link. You can also enter the connection details manually here.",
+							cls: "yaos-settings-details-intro",
+						});
+					}
 
-		new Setting(manualBody)
-			.setName("Server URL")
-			.setDesc("Your YAOS Worker URL. Usually filled in automatically by the setup flow.")
-			.addText((text) =>
-				text
-					.setPlaceholder("https://...")
-					.setValue(this.plugin.settings.host)
-					.onChange(async (value) => {
-						this.plugin.settings.host = value.trim();
+				new Setting(manualBody)
+					.setName("Server URL")
+					.setDesc("Your server URL. This is usually filled in automatically by the setup flow.")
+					.addText((text) =>
+						text
+							.setPlaceholder("Paste the server URL")
+							.setValue(this.plugin.settings.host)
+						.onChange(async (value) => {
+							this.plugin.settings.host = value.trim();
 						await this.plugin.saveSettings();
 						this.display();
 					}),
 			);
 
-		if (isInsecureRemoteHost(this.plugin.settings.host)) {
-			const warning = manualBody.createEl("p", {
-				text: "Warning: using an unencrypted remote connection. Your sync token will be sent in plaintext. Use https:// for production.",
-			});
-			warning.style.color = "var(--text-error)";
-			warning.style.fontSize = "12px";
-			warning.style.marginTop = "-8px";
-		}
+			if (isInsecureRemoteHost(this.plugin.settings.host)) {
+				manualBody.createEl("p", {
+					text: "This remote connection is unencrypted. Your sync token will be sent in plaintext. Use HTTPS for production.",
+					cls: "yaos-settings-security-warning",
+				});
+			}
 
-		new Setting(manualBody)
-			.setName("Sync token")
-			.setDesc(
-				authMode === "unclaimed"
-					? "Leave this blank until you claim the server in a browser, then use the YAOS setup link."
-					: authMode === "env"
-						? "Must match the SYNC_TOKEN configured on the server."
-						: "Usually filled in automatically by the YAOS setup link after you claim the server.",
-			)
-			.addText((text) =>
-				text
-					.setPlaceholder("your-secret-token")
-					.setValue(this.plugin.settings.token)
-					.onChange(async (value) => {
-						this.plugin.settings.token = value.trim();
+			new Setting(manualBody)
+				.setName("Sync token")
+				.setDesc(
+					authMode === "unclaimed"
+						? "Leave this blank until you claim the server in a browser, then use the setup link."
+						: authMode === "env"
+							? "Must match the SYNC_TOKEN configured on the server."
+							: "This is usually filled in automatically by the setup link after you claim the server.",
+				)
+				.addText((text) =>
+					text
+						.setPlaceholder("Paste your sync token")
+						.setValue(this.plugin.settings.token)
+						.onChange(async (value) => {
+							this.plugin.settings.token = value.trim();
 						await this.plugin.saveSettings();
 						this.display();
 					}),
 			);
 
 		const advancedDetails = createDetailsSection(containerEl, "Advanced", false);
-		const advancedBody = advancedDetails.createDiv();
-		advancedBody.style.marginTop = "8px";
+		const advancedBody = advancedDetails.createDiv({ cls: "yaos-settings-details-body" });
 
-		new Setting(advancedBody)
-			.setName("Vault ID")
-			.setDesc("Devices syncing the same vault must use exactly the same vault ID. Change only if you know what you are doing.")
-			.addText((text) =>
-				text
-					.setPlaceholder("auto-generated")
-					.setValue(this.plugin.settings.vaultId)
-					.onChange(async (value) => {
-						this.plugin.settings.vaultId = value.trim();
+			new Setting(advancedBody)
+				.setName("Vault ID")
+				.setDesc("Devices syncing the same vault must use exactly the same vault ID. Change only if you know what you are doing.")
+				.addText((text) =>
+					text
+						.setPlaceholder("Generated automatically")
+						.setValue(this.plugin.settings.vaultId)
+						.onChange(async (value) => {
+							this.plugin.settings.vaultId = value.trim();
 						await this.plugin.saveSettings();
 						this.display();
 					}),
 			);
 
-		new Setting(advancedBody)
-			.setName("Edits from other apps")
-			.setDesc("Choose how YAOS handles file changes from git, scripts, or other editors.")
-			.addDropdown((dropdown) =>
-				dropdown
-					.addOption("always", "Always import")
+			new Setting(advancedBody)
+				.setName("Edits from other apps")
+				.setDesc("Choose how the plugin handles file changes from Git, scripts, or other editors.")
+				.addDropdown((dropdown) =>
+					dropdown
+						.addOption("always", "Always import")
 					.addOption("closed-only", "Only when file is closed")
 					.addOption("never", "Never import")
 					.setValue(this.plugin.settings.externalEditPolicy)
@@ -636,9 +601,9 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 					}),
 			);
 
-		advancedBody.createEl("p", {
-			text: "Changing Server URL, Sync token, or Vault ID requires reloading the plugin.",
-			cls: "setting-item-description",
-		});
+			advancedBody.createEl("p", {
+				text: "Changing the server URL, sync token, or vault ID requires reloading the plugin.",
+				cls: "setting-item-description",
+			});
 	}
 }

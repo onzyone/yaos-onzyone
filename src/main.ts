@@ -44,6 +44,8 @@ import {
 	type TraceEventDetails,
 	type TraceHttpContext,
 } from "./debug/trace";
+import { formatUnknown, yTextToString } from "./utils/format";
+import { obsidianRequest } from "./utils/http";
 
 type SyncStatus = "disconnected" | "loading" | "syncing" | "connected" | "offline" | "error" | "unauthorized";
 
@@ -174,6 +176,14 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 	 */
 	private awaitingFirstProviderSyncAfterStartup = false;
 
+	private isMarkdownPathSyncable(path: string): boolean {
+		return isMarkdownSyncable(path, this.excludePatterns, this.app.vault.configDir);
+	}
+
+	private isBlobPathSyncable(path: string): boolean {
+		return isBlobSyncable(path, this.excludePatterns, this.app.vault.configDir);
+	}
+
 	async onload() {
 		await this.loadSettings();
 		this.registerObsidianProtocolHandler("yaos", (params) => {
@@ -208,14 +218,14 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 
 		if (!this.settings.host) {
 			this.log("Host not configured — sync disabled");
-			new Notice("YAOS: configure the server host in settings to enable sync.");
+			new Notice("Configure the server host in settings to enable sync.");
 			return;
 		}
 
 		if (this.serverCapabilities?.claimed === false) {
 			this.log("Server is unclaimed — sync disabled");
 			new Notice(
-				"YAOS: open your server URL in a browser, claim it, then use the YAOS setup link.",
+				"Open your server URL in a browser, claim it, then use the setup link.",
 				10000,
 			);
 			return;
@@ -244,12 +254,12 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				const url = new URL(this.settings.host);
 				const h = url.hostname;
 				if (url.protocol === "http:" && h !== "localhost" && h !== "127.0.0.1" && h !== "[::1]") {
-					this.log("WARNING: connecting over unencrypted HTTP to a remote host — token sent in plaintext");
-					new Notice(
-						"YAOS: connecting over unencrypted HTTP. Your token will be sent in plaintext. Use https:// for production.",
-						8000,
-					);
-				}
+						this.log("WARNING: connecting over unencrypted HTTP to a remote host — token sent in plaintext");
+						new Notice(
+							"Connecting over unencrypted HTTP. Your token will be sent in plaintext. Use HTTPS for production.",
+							8000,
+						);
+					}
 			} catch { /* invalid URL, will fail at connect */ }
 		}
 
@@ -444,7 +454,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			}
 		} catch (err) {
 			console.error("[yaos] Failed to initialize sync:", err);
-			new Notice(`YAOS: failed to initialize — ${err}`);
+			new Notice(`YAOS: failed to initialize — ${formatUnknown(err)}`);
 			this.updateStatusBar("error");
 		}
 	}
@@ -641,7 +651,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				if (!live || live !== sync) return;
 				if (live.fatalAuthError) return;
 				if (live.connected || live.provider.wsconnecting) return;
-				live.provider.connect();
+					void live.provider.connect();
 			}, FAST_RECONNECT_JITTER_MS);
 		}, FAST_RECONNECT_DEBOUNCE_MS);
 	}
@@ -691,7 +701,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			// Filter by exclude patterns first
 			const eligibleFiles: TFile[] = [];
 			for (const file of allMdFiles) {
-				if (!isMarkdownSyncable(file.path, this.excludePatterns)) {
+				if (!this.isMarkdownPathSyncable(file.path)) {
 					excludedCount++;
 					continue;
 				}
@@ -1110,9 +1120,9 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				if (!this.reconciled) return;
 				if (!(file instanceof TFile)) return;
 
-				if (isMarkdownSyncable(file.path, this.excludePatterns)) {
+				if (this.isMarkdownPathSyncable(file.path)) {
 					void this.markMarkdownDirty(file, "modify");
-				} else if (this.blobSync && isBlobSyncable(file.path, this.excludePatterns) && !this.blobSync.isSuppressed(file.path)) {
+				} else if (this.blobSync && this.isBlobPathSyncable(file.path) && !this.blobSync.isSuppressed(file.path)) {
 					this.blobSync.handleFileChange(file);
 				}
 			}),
@@ -1126,10 +1136,10 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				if (!this.reconciled) return;
 				if (!(file instanceof TFile)) return;
 				// Rename is relevant if either the old or new path is syncable
-				const newSyncable = isMarkdownSyncable(file.path, this.excludePatterns)
-					|| isBlobSyncable(file.path, this.excludePatterns);
-				const oldSyncable = isMarkdownSyncable(oldPath, this.excludePatterns)
-					|| isBlobSyncable(oldPath, this.excludePatterns);
+				const newSyncable = this.isMarkdownPathSyncable(file.path)
+					|| this.isBlobPathSyncable(file.path);
+				const oldSyncable = this.isMarkdownPathSyncable(oldPath)
+					|| this.isBlobPathSyncable(oldPath);
 				if (!newSyncable && !oldSyncable) return;
 				this.vaultSync?.queueRename(oldPath, file.path);
 				this.log(`Rename queued: "${oldPath}" -> "${file.path}"`);
@@ -1141,7 +1151,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				if (!this.reconciled) return;
 				if (!(file instanceof TFile)) return;
 
-				if (isMarkdownSyncable(file.path, this.excludePatterns)) {
+				if (this.isMarkdownPathSyncable(file.path)) {
 					if (this.diskMirror?.consumeDeleteSuppression(file.path)) {
 						this.log(`Suppressed delete event for "${file.path}"`);
 						return;
@@ -1155,7 +1165,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 						this.settings.deviceName,
 					);
 					this.log(`Delete: "${file.path}"`);
-				} else if (this.blobSync && isBlobSyncable(file.path, this.excludePatterns) && !this.blobSync.isSuppressed(file.path)) {
+				} else if (this.blobSync && this.isBlobPathSyncable(file.path) && !this.blobSync.isSuppressed(file.path)) {
 					this.blobSync.handleFileDelete(file.path, this.settings.deviceName);
 					this.log(`Delete (blob): "${file.path}"`);
 				}
@@ -1167,9 +1177,9 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				if (!this.reconciled) return;
 				if (!(file instanceof TFile)) return;
 
-				if (isMarkdownSyncable(file.path, this.excludePatterns)) {
+				if (this.isMarkdownPathSyncable(file.path)) {
 					void this.markMarkdownDirty(file, "create");
-				} else if (this.blobSync && isBlobSyncable(file.path, this.excludePatterns) && !this.blobSync.isSuppressed(file.path)) {
+				} else if (this.blobSync && this.isBlobPathSyncable(file.path) && !this.blobSync.isSuppressed(file.path)) {
 					// For blob files, use the same stability check before uploading
 					if (this.pendingStabilityChecks.has(file.path)) return;
 					this.pendingStabilityChecks.add(file.path);
@@ -1259,23 +1269,23 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 
 	private registerCommands(): void {
 		this.addCommand({
-			id: "yaos-reconnect",
+			id: "reconnect",
 			name: "Reconnect to sync server",
 			callback: () => {
-				if (this.vaultSync) {
-					this.vaultSync.provider.disconnect();
-					this.vaultSync.provider.connect();
-					new Notice("YAOS: reconnecting...");
-				}
-			},
-		});
+					if (this.vaultSync) {
+						this.vaultSync.provider.disconnect();
+						void this.vaultSync.provider.connect();
+						new Notice("Reconnecting...");
+					}
+				},
+			});
 
-		this.addCommand({
-			id: "yaos-force-reconcile",
-			name: "Force reconcile vault with CRDT",
-			callback: () => {
-				if (!this.vaultSync) return;
-				const mode = this.vaultSync.getSafeReconcileMode();
+			this.addCommand({
+				id: "force-reconcile",
+				name: "Force reconcile vault with sync state",
+				callback: () => {
+					if (!this.vaultSync) return;
+					const mode = this.vaultSync.getSafeReconcileMode();
 				void this.runReconciliation(mode).then(() => {
 					this.bindAllOpenEditors();
 					this.validateAllOpenBindings("manual-reconcile");
@@ -1284,17 +1294,17 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "yaos-debug-status",
+			id: "debug-status",
 			name: "Show sync debug info",
 			callback: () => {
 				const info = this.buildDebugInfo();
 				new Notice(info, 10000);
-				console.log("[yaos] Debug status:\n" + info);
+				console.debug("[yaos] Debug status:\n" + info);
 			},
 		});
 
 		this.addCommand({
-			id: "yaos-copy-debug",
+			id: "copy-debug",
 			name: "Copy debug info to clipboard",
 			callback: () => {
 				const info = this.buildDebugInfo();
@@ -1302,22 +1312,22 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 					() => new Notice("Debug info copied to clipboard."),
 					() => new Notice("Failed to copy to clipboard. Check console.", 5000),
 				);
-				console.log("[yaos] Debug info:\n" + info);
+				console.debug("[yaos] Debug info:\n" + info);
 			},
 		});
 
 		this.addCommand({
-			id: "yaos-show-recent-events",
+			id: "show-recent-events",
 			name: "Show recent sync events",
 			callback: () => {
 				const text = this.buildRecentEventsText(80);
 				new Notice("Recent sync events printed to console.", 5000);
-				console.log("[yaos] Recent sync events:\n" + text);
+				console.debug("[yaos] Recent sync events:\n" + text);
 			},
 		});
 
 		this.addCommand({
-			id: "yaos-export-diagnostics",
+			id: "export-diagnostics",
 			name: "Export sync diagnostics",
 			callback: () => {
 				void this.exportDiagnostics();
@@ -1325,19 +1335,19 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "yaos-migrate-schema-v2",
+			id: "migrate-schema-v2",
 			name: "Migrate sync schema to v2",
 			callback: () => {
 				void this.runSchemaMigrationToV2();
 			},
 		});
 
-		this.addCommand({
-			id: "yaos-debug-vfs-torture-test",
-			name: "Run VFS torture test (debug)",
-			checkCallback: (checking: boolean) => {
-				if (!this.settings.debug) return false;
-				if (!checking) {
+			this.addCommand({
+				id: "debug-vfs-torture-test",
+				name: "Run filesystem torture test (debug)",
+				checkCallback: (checking: boolean) => {
+					if (!this.settings.debug) return false;
+					if (!checking) {
 					void this.runVfsTortureTest();
 				}
 				return true;
@@ -1345,7 +1355,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "yaos-import-untracked",
+			id: "import-untracked",
 			name: "Import untracked files now",
 			callback: () => {
 				if (!this.vaultSync) {
@@ -1364,7 +1374,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		});
 
 		this.addCommand({
-			id: "yaos-reset-cache",
+			id: "reset-cache",
 			name: "Reset local cache (re-sync from server)",
 			callback: () => {
 				if (!this.vaultSync) {
@@ -1378,9 +1388,9 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 					"Reset local cache",
 					"This will clear the local IndexedDB cache and re-sync from the server. " +
 					"Your disk files and server state are not affected. Continue?",
-					async () => {
-						this.log("Reset cache: starting");
-						new Notice("YAOS: clearing cache and re-syncing...");
+						async () => {
+							this.log("Reset cache: starting");
+							new Notice("Clearing cache and syncing again...");
 
 						this.teardownSync();
 
@@ -1391,28 +1401,28 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 							console.error("[yaos] Failed to delete IDB:", err);
 						}
 
-						this.log("Reset cache: reinitializing");
-						await this.initSync();
-						new Notice("YAOS: cache reset complete.");
-					},
-				).open();
-			},
+							this.log("Reset cache: reinitializing");
+							await this.initSync();
+							new Notice("Cache reset complete.");
+						},
+					).open();
+				},
 		});
 
 		// --- Snapshot commands ---
 
 		this.addCommand({
-			id: "yaos-snapshot-now",
+			id: "snapshot-now",
 			name: "Take snapshot now",
 			callback: async () => {
 				if (!this.vaultSync) {
 					new Notice("Sync not initialized");
 					return;
-				}
-				if (!this.serverSupportsSnapshots) {
-					new Notice("Snapshots are unavailable until the server has an R2 YAOS_BUCKET binding.");
-					return;
-				}
+					}
+					if (!this.serverSupportsSnapshots) {
+						new Notice("Snapshots are unavailable until object storage is configured on the server.");
+						return;
+					}
 				if (!this.vaultSync.connected) {
 					new Notice("Not connected to server — cannot create snapshot.");
 					return;
@@ -1438,23 +1448,23 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 					}
 				} catch (err) {
 					console.error("[yaos] Snapshot failed:", err);
-					new Notice(`Snapshot failed: ${err}`);
+					new Notice(`Snapshot failed: ${formatUnknown(err)}`);
 				}
 			},
 		});
 
 		this.addCommand({
-			id: "yaos-snapshot-list",
+			id: "snapshot-list",
 			name: "Browse and restore snapshots",
 			callback: async () => {
 				if (!this.vaultSync) {
 					new Notice("Sync not initialized");
 					return;
-				}
-				if (!this.serverSupportsSnapshots) {
-					new Notice("Snapshots are unavailable until the server has an R2 YAOS_BUCKET binding.");
-					return;
-				}
+					}
+					if (!this.serverSupportsSnapshots) {
+						new Notice("Snapshots are unavailable until object storage is configured on the server.");
+						return;
+					}
 				if (!this.vaultSync.connected) {
 					new Notice("Not connected to server — cannot browse snapshots.");
 					return;
@@ -1465,12 +1475,12 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 
 		// --- Reset commands ---
 
-		this.addCommand({
-			id: "yaos-nuclear-reset",
-			name: "Nuclear reset (wipe CRDT, re-seed from disk)",
-			callback: () => {
-				if (!this.vaultSync) {
-					new Notice("Sync not initialized");
+			this.addCommand({
+				id: "nuclear-reset",
+				name: "Nuclear reset (wipe sync state and reseed from disk)",
+				callback: () => {
+					if (!this.vaultSync) {
+						new Notice("Sync not initialized");
 					return;
 				}
 
@@ -1481,9 +1491,9 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 					`This will wipe all CRDT state (${pathCount} files) on both this device and the server, ` +
 					`clear the local cache, then re-seed everything from your current disk files. ` +
 					`Other connected devices will also see the reset. This cannot be undone. Continue?`,
-					async () => {
-						this.log("Nuclear reset: starting");
-						new Notice("YAOS: nuclear reset in progress...");
+						async () => {
+							this.log("Nuclear reset: starting");
+							new Notice("Nuclear reset in progress...");
 
 						// Clear CRDT maps BEFORE teardown so the deletions propagate
 						// to the server while the provider is still connected.
@@ -1671,7 +1681,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 
 	private async syncFileFromDisk(file: TFile): Promise<void> {
 		if (!this.vaultSync) return;
-		if (!isMarkdownSyncable(file.path, this.excludePatterns)) return;
+		if (!this.isMarkdownPathSyncable(file.path)) return;
 
 		const wasBound = this.editorBindings?.isBound(file.path) ?? false;
 
@@ -1712,7 +1722,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			}
 
 			if (existingText) {
-				const crdtContent = existingText.toString();
+				const crdtContent = existingText.toJSON();
 				if (crdtContent === content) return;
 
 				// Apply a line-level diff to the Y.Text instead of delete-all + insert-all.
@@ -1778,7 +1788,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			return false;
 		}
 
-		const crdtContent = existingText?.toString() ?? null;
+		const crdtContent = yTextToString(existingText);
 		if (crdtContent === content) {
 			this.boundRecoveryLocks.delete(file.path);
 			this.log(`syncFileFromDisk: skipping "${file.path}" (editor-bound, crdt-current)`);
@@ -2147,17 +2157,18 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				`${host}/vault/${encodeURIComponent(roomId)}/debug/recent`,
 				this.getTraceHttpContext(),
 			);
-			const res = await fetch(url, {
+			const res = await obsidianRequest({
+				url,
 				method: "GET",
 				headers: {
 					Authorization: `Bearer ${this.settings.token}`,
 				},
 			});
-			if (!res.ok) {
+			if (res.status !== 200) {
 				throw new Error(`server debug fetch failed (${res.status})`);
 			}
 
-			const payload = (await res.json()) as {
+			const payload = res.json as {
 				recent?: unknown[];
 				roomId?: unknown;
 			};
@@ -2232,7 +2243,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			const path = file.path;
 			const editorContent = view.editor.getValue();
 			const diskContent = await this.app.vault.read(file).catch(() => null);
-			const crdtContent = this.vaultSync.getTextForPath(path)?.toString() ?? null;
+			const crdtContent = yTextToString(this.vaultSync.getTextForPath(path));
 			const binding = this.editorBindings?.getBindingDebugInfoForView(view) ?? null;
 			const collab = this.editorBindings?.getCollabDebugInfoForView(view) ?? null;
 
@@ -2340,15 +2351,15 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		}
 		// Load disk index from plugin data (stored under _diskIndex key)
 		if (data && typeof data._diskIndex === "object" && data._diskIndex !== null) {
-			this.diskIndex = data._diskIndex as DiskIndex;
+			this.diskIndex = data._diskIndex;
 		}
 		// Load blob hash cache
 		if (data && typeof data._blobHashCache === "object" && data._blobHashCache !== null) {
-			this.blobHashCache = data._blobHashCache as BlobHashCache;
+			this.blobHashCache = data._blobHashCache;
 		}
 		// Load persisted blob queue
 		if (data && typeof data._blobQueue === "object" && data._blobQueue !== null) {
-			this.savedBlobQueue = data._blobQueue as BlobQueueSnapshot;
+			this.savedBlobQueue = data._blobQueue;
 		}
 		this.refreshPersistedState();
 		if (migratedSettings) {
@@ -2463,7 +2474,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 					`${result.uploadQueued} uploads, ${result.downloadQueued} downloads, ${result.skipped} skipped`,
 				);
 			} catch (err) {
-				this.log(`Attachment reconcile (${reason}) failed: ${err}`);
+				this.log(`Attachment reconcile (${reason}) failed: ${formatUnknown(err)}`);
 			}
 		}
 	}
@@ -2515,7 +2526,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			this.serverCapabilities = await fetchServerCapabilities(this.settings.host);
 		} catch (err) {
 			this.serverCapabilities = null;
-			this.log(`Server capability probe failed: ${err}`);
+			this.log(`Server capability probe failed: ${formatUnknown(err)}`);
 		}
 
 		await this.handleCapabilityChange(previous, this.serverCapabilities, reason);
@@ -2560,49 +2571,67 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			if (this.vaultSync?.connected && this.vaultSync.providerSynced && this.serverSupportsSnapshots) {
 				void this.triggerDailySnapshot();
 			}
-		} else if (lostR2) {
-			new Notice(
-				"YAOS: R2 backend is unavailable. Attachment transfers are paused and snapshots are unavailable.",
-				7000,
-			);
-		}
+			} else if (lostR2) {
+				new Notice(
+					"Object storage is unavailable. Attachment transfers are paused and snapshots are unavailable.",
+					7000,
+				);
+			}
 	}
 
-	private async handleSetupLink(params: Record<string, string>): Promise<void> {
-		const host = typeof params.host === "string" ? params.host.trim() : "";
-		const token = typeof params.token === "string" ? params.token.trim() : "";
-		const incomingVaultId = typeof params.vaultId === "string" ? params.vaultId.trim() : "";
-		if (!host || !token) {
-			new Notice("YAOS: setup link is missing host or token.");
-			return;
-		}
-		if (!incomingVaultId) {
-			new Notice(
-				"YAOS: setup link is missing vault ID. This may create a separate sync room on this device.",
-				8000,
-			);
-		}
+		private async confirmVaultIdSwitch(
+			currentVaultId: string,
+			incomingVaultId: string,
+			localMarkdownCount: number,
+		): Promise<boolean> {
+			return await new Promise((resolve) => {
+				new ConfirmModal(
+					this.app,
+					"Switch vault ID",
+					`This pairing link points to a different vault ID. ` +
+					`Current vault ID: ${currentVaultId}. Incoming vault ID: ${incomingVaultId}. ` +
+					`This vault currently has ${localMarkdownCount} local markdown files. ` +
+					`Switching rooms may pull a different remote state. Continue and switch to the incoming vault ID?`,
+				() => resolve(true),
+				"Switch vault ID",
+				"Keep current vault ID",
+				() => resolve(false),
+			).open();
+		});
+	}
+
+		private async handleSetupLink(params: Record<string, string>): Promise<void> {
+			const host = typeof params.host === "string" ? params.host.trim() : "";
+			const token = typeof params.token === "string" ? params.token.trim() : "";
+			const incomingVaultId = typeof params.vaultId === "string" ? params.vaultId.trim() : "";
+			if (!host || !token) {
+				new Notice("Setup link is missing a host or token.");
+				return;
+			}
+			if (!incomingVaultId) {
+				new Notice(
+					"Setup link is missing the vault ID. This may create a separate sync room on this device.",
+					8000,
+				);
+			}
 
 		const currentVaultId = this.settings.vaultId?.trim() ?? "";
 		if (incomingVaultId && currentVaultId && incomingVaultId !== currentVaultId) {
 			const localMarkdownCount = this.app.vault
 				.getMarkdownFiles()
-				.filter((file) => isMarkdownSyncable(file.path, this.excludePatterns))
+				.filter((file) => this.isMarkdownPathSyncable(file.path))
 				.length;
 			if (localMarkdownCount > 5) {
-				const confirmed = window.confirm(
-					`YAOS pairing link points to a different Vault ID.\n\n` +
-					`Current: ${currentVaultId}\n` +
-					`Incoming: ${incomingVaultId}\n\n` +
-					`This vault currently has ${localMarkdownCount} local markdown files. ` +
-					`Switching rooms may pull a different remote state.\n\n` +
-					`Continue and switch to the incoming Vault ID?`,
-				);
-				if (!confirmed) {
-					new Notice("YAOS: pairing cancelled. Vault ID unchanged.", 6000);
-					return;
+				const confirmed = await this.confirmVaultIdSwitch(
+					currentVaultId,
+					incomingVaultId,
+					localMarkdownCount,
+					);
+					if (!confirmed) {
+						new Notice("Pairing cancelled. Vault ID unchanged.", 6000);
+						return;
+					}
 				}
-			}
 		}
 
 		this.settings.host = host.replace(/\/$/, "");
@@ -2611,34 +2640,34 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			this.settings.vaultId = incomingVaultId;
 		}
 		await this.refreshServerCapabilities();
-		await this.saveSettings();
-		this.excludePatterns = parseExcludePatterns(this.settings.excludePatterns);
-		this.maxFileSize = this.settings.maxFileSizeKB * 1024;
-		this.applyCursorVisibility();
-		new Notice("YAOS: server linked. Starting sync...", 6000);
+			await this.saveSettings();
+			this.excludePatterns = parseExcludePatterns(this.settings.excludePatterns);
+			this.maxFileSize = this.settings.maxFileSizeKB * 1024;
+			this.applyCursorVisibility();
+			new Notice("Server linked. Starting sync...", 6000);
 
 		if (!this.vaultSync) {
 			void this.initSync();
 			return;
 		}
 
-		new Notice("YAOS: settings saved. Reload the plugin to reconnect with the new server.", 8000);
-	}
-
-	private showFatalSyncNotice(): void {
-		const code = this.vaultSync?.fatalAuthCode;
-		if (code === "unclaimed") {
-			new Notice(
-				"YAOS: this server is unclaimed. Open the server URL in a browser, then use the YAOS setup link.",
-				10000,
-			);
-			return;
+			new Notice("Settings saved. Reload the plugin to reconnect with the new server.", 8000);
 		}
 
-		if (code === "server_misconfigured") {
-			new Notice("YAOS: server misconfigured.");
-			return;
-		}
+		private showFatalSyncNotice(): void {
+			const code = this.vaultSync?.fatalAuthCode;
+			if (code === "unclaimed") {
+				new Notice(
+					"This server is unclaimed. Open the server URL in a browser, then use the setup link.",
+					10000,
+				);
+				return;
+			}
+
+			if (code === "server_misconfigured") {
+				new Notice("Server misconfigured.");
+				return;
+			}
 		if (code === "update_required") {
 			const details = this.vaultSync?.fatalAuthDetails;
 			const detailText =
@@ -2653,8 +2682,8 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			return;
 		}
 
-		new Notice("YAOS: unauthorized — check your token in settings.");
-	}
+			new Notice("Unauthorized. Check your token in settings.");
+		}
 
 	private async saveDiskIndex(): Promise<void> {
 		await this.persistPluginState();
@@ -2777,11 +2806,11 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		const startedAt = Date.now();
 
 		const diskFiles = this.app.vault.getMarkdownFiles()
-			.filter((f) => isMarkdownSyncable(f.path, this.excludePatterns));
+			.filter((f) => this.isMarkdownPathSyncable(f.path));
 
 		const crdtPaths = new Set<string>(
 			this.vaultSync.getActiveMarkdownPaths().filter((path) =>
-				isMarkdownSyncable(path, this.excludePatterns),
+				this.isMarkdownPathSyncable(path),
 			),
 		);
 
@@ -2802,7 +2831,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		for (const path of crdtPaths) {
 			const ytext = this.vaultSync.getTextForPath(path);
 			if (!ytext) continue;
-			const content = ytext.toString();
+			const content = ytext.toJSON();
 			crdtHashes.set(path, {
 				hash: await this.sha256Hex(content),
 				length: content.length,
@@ -2916,11 +2945,11 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			return;
 		}
 
-		const fromVersion = this.vaultSync.storedSchemaVersion;
-		if (fromVersion !== null && fromVersion >= 2) {
-			new Notice("YAOS: this vault is already on schema v2.");
-			return;
-		}
+			const fromVersion = this.vaultSync.storedSchemaVersion;
+			if (fromVersion !== null && fromVersion >= 2) {
+				new Notice("This vault is already on schema v2.");
+				return;
+			}
 
 		new ConfirmModal(
 			this.app,
@@ -2930,11 +2959,11 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			async () => {
 				if (!this.vaultSync) return;
 
-				try {
-					new Notice("YAOS: exporting pre-migration diagnostics...", 7000);
-					await this.exportDiagnostics();
-				} catch (err) {
-					this.log(`schema migration: preflight diagnostics export failed: ${String(err)}`);
+					try {
+						new Notice("Exporting pre-migration diagnostics...", 7000);
+						await this.exportDiagnostics();
+					} catch (err) {
+						this.log(`schema migration: preflight diagnostics export failed: ${String(err)}`);
 				}
 
 				const result = this.vaultSync.migrateSchemaToV2(this.settings.deviceName);
@@ -2951,11 +2980,11 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				this.bindAllOpenEditors();
 				this.validateAllOpenBindings("schema-migration");
 
-				try {
-					new Notice("YAOS: exporting post-migration diagnostics...", 7000);
-					await this.exportDiagnostics();
-				} catch (err) {
-					this.log(`schema migration: postflight diagnostics export failed: ${String(err)}`);
+					try {
+						new Notice("Exporting post-migration diagnostics...", 7000);
+						await this.exportDiagnostics();
+					} catch (err) {
+						this.log(`schema migration: postflight diagnostics export failed: ${String(err)}`);
 				}
 
 				new Notice(
@@ -2975,7 +3004,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			const node = this.app.vault.getAbstractFileByPath(path);
 			if (!(node instanceof TFile)) continue;
 			try {
-				await this.app.vault.delete(node, true);
+				await this.app.fileManager.trashFile(node);
 				removed++;
 			} catch (err) {
 				this.log(`schema migration: failed to remove loser path "${path}": ${String(err)}`);
@@ -3049,7 +3078,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			}
 		};
 
-		new Notice("YAOS: running VFS torture test...");
+			new Notice("Running filesystem torture test...");
 		this.log(`VFS torture: starting run ${runId} in "${rootDir}"`);
 
 		await runStep("Create sandbox folder structure", async () => {
@@ -3120,7 +3149,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 				tombstonePath,
 				"# Tombstone test\n\noriginal content",
 			);
-			await this.app.vault.delete(file, true);
+			await this.app.fileManager.trashFile(file);
 			await this.app.vault.create(
 				tombstonePath,
 				"# Tombstone test\n\nrecreated content",
@@ -3235,10 +3264,10 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 	 * Show a list of available snapshots and let the user pick one to diff/restore.
 	 */
 	private async showSnapshotList(): Promise<void> {
-		if (!this.serverSupportsSnapshots) {
-			new Notice("Snapshots are unavailable until the server has an R2 YAOS_BUCKET binding.");
-			return;
-		}
+			if (!this.serverSupportsSnapshots) {
+				new Notice("Snapshots are unavailable until object storage is configured on the server.");
+				return;
+			}
 
 		new Notice("Loading snapshots...");
 
@@ -3258,7 +3287,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			}).open();
 		} catch (err) {
 			console.error("[yaos] Failed to list snapshots:", err);
-			new Notice(`Failed to list snapshots: ${err}`);
+			new Notice(`Failed to list snapshots: ${formatUnknown(err)}`);
 		}
 	}
 
@@ -3296,7 +3325,9 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 					// --- Pre-restore backup ---
 					// Save current content of files we're about to overwrite
 					// so the user can recover if the restore goes wrong.
-					const backupDir = `.obsidian/plugins/yaos/restore-backups/${new Date().toISOString().replace(/[:.]/g, "-")}`;
+					const backupDir = normalizePath(
+						`${this.app.vault.configDir}/plugins/yaos/restore-backups/${new Date().toISOString().replace(/[:.]/g, "-")}`,
+					);
 					let backedUp = 0;
 					for (const path of markdownPaths) {
 						try {
@@ -3314,7 +3345,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 							}
 						} catch (err) {
 							// Non-fatal: file might not exist on disk (undelete case)
-							this.log(`Backup skipped for "${path}": ${err}`);
+							this.log(`Backup skipped for "${path}": ${formatUnknown(err)}`);
 						}
 					}
 					if (backedUp > 0) {
@@ -3362,7 +3393,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			).open();
 		} catch (err) {
 			console.error("[yaos] Snapshot diff failed:", err);
-			new Notice(`Failed to load snapshot: ${err}`);
+			new Notice(`Failed to load snapshot: ${formatUnknown(err)}`);
 		}
 	}
 
@@ -3373,7 +3404,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		}
 		this.trace("plugin", msg);
 		if (this.settings.debug) {
-			console.log(`[yaos] ${msg}`);
+				console.debug(`[yaos] ${msg}`);
 		}
 	}
 
@@ -3386,7 +3417,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		const message =
 			typeof (err as { message?: unknown })?.message === "string"
 				? (err as { message: string }).message
-				: String(err);
+				: formatUnknown(err);
 		const haystack = `${name} ${message}`.toLowerCase();
 		return haystack.includes("quotaexceeded")
 			|| haystack.includes("quota exceeded")
@@ -3424,17 +3455,27 @@ class ConfirmModal extends Modal {
 	private title: string;
 	private message: string;
 	private onConfirm: () => void | Promise<void>;
+	private confirmText: string;
+	private cancelText: string;
+	private onCancel?: () => void | Promise<void>;
+	private confirmed = false;
 
 	constructor(
 		app: import("obsidian").App,
 		title: string,
 		message: string,
 		onConfirm: () => void | Promise<void>,
+		confirmText = "Confirm",
+		cancelText = "Cancel",
+		onCancel?: () => void | Promise<void>,
 	) {
 		super(app);
 		this.title = title;
 		this.message = message;
 		this.onConfirm = onConfirm;
+		this.confirmText = confirmText;
+		this.cancelText = cancelText;
+		this.onCancel = onCancel;
 	}
 
 	onOpen() {
@@ -3447,14 +3488,15 @@ class ConfirmModal extends Modal {
 		const buttonRow = contentEl.createDiv({ cls: "modal-button-container" });
 
 		buttonRow
-			.createEl("button", { text: "Cancel" })
+			.createEl("button", { text: this.cancelText })
 			.addEventListener("click", () => this.close());
 
 		const confirmBtn = buttonRow.createEl("button", {
-			text: "Confirm",
+			text: this.confirmText,
 			cls: "mod-warning",
 		});
 		confirmBtn.addEventListener("click", () => {
+			this.confirmed = true;
 			this.close();
 			void this.onConfirm();
 		});
@@ -3462,6 +3504,9 @@ class ConfirmModal extends Modal {
 
 	onClose() {
 		this.contentEl.empty();
+		if (!this.confirmed && this.onCancel) {
+			void this.onCancel();
+		}
 	}
 }
 
@@ -3480,6 +3525,7 @@ class SnapshotListModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
+		contentEl.addClass("snapshot-list-modal");
 
 		contentEl.createEl("h3", { text: "Available snapshots" });
 		contentEl.createEl("p", {
@@ -3491,9 +3537,6 @@ class SnapshotListModal extends Modal {
 
 		for (const snap of this.snapshots) {
 			const item = list.createDiv({ cls: "snapshot-list-item" });
-			item.style.padding = "8px 0";
-			item.style.borderBottom = "1px solid var(--background-modifier-border)";
-			item.style.cursor = "pointer";
 
 			const date = new Date(snap.createdAt);
 			const dateStr = date.toLocaleDateString(undefined, {
@@ -3522,14 +3565,6 @@ class SnapshotListModal extends Modal {
 			item.addEventListener("click", () => {
 				this.close();
 				void this.onSelect(snap);
-			});
-
-			// Hover effect
-			item.addEventListener("mouseenter", () => {
-				item.style.backgroundColor = "var(--background-modifier-hover)";
-			});
-			item.addEventListener("mouseleave", () => {
-				item.style.backgroundColor = "";
 			});
 		}
 	}
@@ -3562,6 +3597,7 @@ class SnapshotDiffModal extends Modal {
 	onOpen() {
 		const { contentEl } = this;
 		contentEl.empty();
+		contentEl.addClass("snapshot-diff-modal");
 
 		const date = new Date(this.snapshot.createdAt);
 		const dateStr = date.toLocaleDateString(undefined, {
@@ -3648,8 +3684,7 @@ class SnapshotDiffModal extends Modal {
 		}
 
 		// --- Restore button ---
-		const buttonRow = contentEl.createDiv({ cls: "modal-button-container" });
-		buttonRow.style.marginTop = "16px";
+		const buttonRow = contentEl.createDiv({ cls: "modal-button-container snapshot-diff-actions" });
 
 		buttonRow
 			.createEl("button", { text: "Cancel" })
@@ -3680,12 +3715,11 @@ class SnapshotDiffModal extends Modal {
 		paths: string[],
 		selectedSet: Set<string>,
 	): void {
-		const section = container.createDiv();
+		const section = container.createDiv({ cls: "snapshot-diff-section" });
 		section.createEl("h4", { text: `${title} (${paths.length})` });
 
 		// Select all toggle
-		const toggleRow = section.createDiv();
-		toggleRow.style.marginBottom = "4px";
+		const toggleRow = section.createDiv({ cls: "snapshot-diff-select-all-row" });
 		const selectAll = toggleRow.createEl("a", { text: "Select all", href: "#" });
 		selectAll.addEventListener("click", (e) => {
 			e.preventDefault();
@@ -3697,11 +3731,12 @@ class SnapshotDiffModal extends Modal {
 		});
 
 		for (const path of paths) {
-			const row = section.createDiv();
-			row.style.padding = "2px 0";
-			const label = row.createEl("label");
-			const cb = label.createEl("input", { type: "checkbox" });
-			cb.style.marginRight = "6px";
+			const row = section.createDiv({ cls: "snapshot-diff-path-row" });
+			const label = row.createEl("label", { cls: "snapshot-diff-path-label" });
+			const cb = label.createEl("input", {
+				type: "checkbox",
+				cls: "snapshot-diff-path-checkbox",
+			});
 			label.appendText(path);
 
 			cb.addEventListener("change", () => {

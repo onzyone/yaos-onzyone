@@ -81,17 +81,17 @@ export const ORIGIN_SEED = "vault-crdt-seed";
  * Check if a vault-relative path is a markdown file eligible for CRDT sync.
  * Single choke point for all ".md" checks in the codebase.
  */
-export function isMarkdownSyncable(path: string, excludePatterns: string[]): boolean {
+export function isMarkdownSyncable(path: string, excludePatterns: string[], configDir: string): boolean {
 	if (!path.endsWith(".md")) return false;
-	return !isExcluded(path, excludePatterns);
+	return !isExcluded(path, excludePatterns, configDir);
 }
 
 /**
  * Check if a vault-relative path is a non-markdown file eligible for
- * blob/attachment sync. Excludes .obsidian/, .trash/, user patterns,
+ * blob/attachment sync. Excludes the config directory, .trash/, user patterns,
  * and markdown files (handled by the CRDT text pipeline).
  */
-export function isBlobSyncable(path: string, excludePatterns: string[]): boolean {
+export function isBlobSyncable(path: string, excludePatterns: string[], configDir: string): boolean {
 	if (path.endsWith(".md")) return false;
-	return !isExcluded(path, excludePatterns);
+	return !isExcluded(path, excludePatterns, configDir);
 }

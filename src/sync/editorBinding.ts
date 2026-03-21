@@ -118,21 +118,23 @@ export class EditorBindingManager {
 	 * Starts as empty; reconfigured per-editor when a note is opened.
 	 */
 	getBaseExtension(): Extension {
-		const manager = this;
+		const registerKnownCmView = this.registerKnownCmView.bind(this);
+		const handleLiveEditorUpdate = this.handleLiveEditorUpdate.bind(this);
+		const unregisterKnownCmView = this.unregisterKnownCmView.bind(this);
 		return [
 			this.compartment.of([]),
 			ViewPlugin.fromClass(
 				class {
 					constructor(readonly view: EditorView) {
-						manager.registerKnownCmView(view);
+						registerKnownCmView(view);
 					}
 
 					update(update: ViewUpdate): void {
-						manager.handleLiveEditorUpdate(update);
+						handleLiveEditorUpdate(update);
 					}
 
 					destroy(): void {
-						manager.unregisterKnownCmView(this.view);
+						unregisterKnownCmView(this.view);
 					}
 				},
 			),
@@ -304,7 +306,7 @@ export class EditorBindingManager {
 		}
 
 		const currentContent = view.editor.getValue();
-		const crdtContent = target.ytext.toString();
+		const crdtContent = target.ytext.toJSON();
 		if (crdtContent !== currentContent) {
 			this.log(
 				`heal: applying local editor content to "${file.path}" ` +
@@ -589,8 +591,8 @@ export class EditorBindingManager {
 			expectedFileId,
 			facetTextLength:
 				facetText instanceof Y.Text
-					? facetText.toString().length
-					: null,
+						? facetText.toJSON().length
+						: null,
 			cmDocLength: cm.state.doc.length,
 		};
 	}
@@ -1023,7 +1025,7 @@ export class EditorBindingManager {
 	private log(msg: string): void {
 		this.trace?.("editor", msg);
 		if (this.debug) {
-			console.log(`[yaos:editor] ${msg}`);
+			console.debug(`[yaos:editor] ${msg}`);
 		}
 	}
 

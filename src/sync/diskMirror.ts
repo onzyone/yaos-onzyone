@@ -5,6 +5,7 @@ import type { EditorBindingManager } from "./editorBinding";
 import { ORIGIN_SEED } from "../types";
 import { ORIGIN_RESTORE } from "./snapshotClient";
 import type { TraceRecord } from "../debug/trace";
+import { formatUnknown, yTextToString } from "../utils/format";
 
 /**
  * Handles writeback from Y.Text -> disk with:
@@ -55,7 +56,7 @@ function describeOrigin(origin: unknown, provider: unknown): string {
 			(origin as { constructor?: { name?: string } }).constructor?.name;
 		return constructorName || "object";
 	}
-	return String(origin);
+	return formatUnknown(origin);
 }
 
 interface SuppressionEntry {
@@ -308,7 +309,7 @@ export class DiskMirror {
 			setTimeout(() => {
 				this.debounceTimers.delete(path);
 				this.writeQueue.add(path);
-				this.kickDrain();
+					void this.kickDrain();
 			}, delay),
 		);
 	}
@@ -326,7 +327,7 @@ export class DiskMirror {
 					if (!this.pendingOpenWrites.has(path)) return;
 
 					const ytext = this.vaultSync.getTextForPath(path);
-					const crdtContent = ytext?.toString() ?? null;
+					const crdtContent = yTextToString(ytext);
 					if (
 						this.isActivelyViewedPath(path)
 						&& this.hasFocusedEditorUnflushedChanges(path, crdtContent)
@@ -344,7 +345,7 @@ export class DiskMirror {
 
 				this.pendingOpenWrites.delete(path);
 				this.writeQueue.add(path);
-				this.kickDrain();
+				void this.kickDrain();
 			}, OPEN_FILE_IDLE_MS),
 		);
 	}
@@ -411,7 +412,7 @@ export class DiskMirror {
 			this.log(`flushWrite: no Y.Text for "${path}", skipping`);
 			return;
 		}
-		const content = ytext.toString();
+		const content = ytext.toJSON();
 
 		if (!force && this.openPaths.has(path)) {
 			if (
@@ -715,7 +716,7 @@ export class DiskMirror {
 	private log(msg: string): void {
 		this.trace?.("disk", msg);
 		if (this.debug) {
-			console.log(`[yaos:disk] ${msg}`);
+			console.debug(`[yaos:disk] ${msg}`);
 		}
 	}
 
@@ -752,7 +753,7 @@ export class DiskMirror {
 		}
 		this.writeQueue.add(path);
 		this.log(`queueImmediateWrite: "${path}" (${reason}${force ? ", forced" : ""})`);
-		this.kickDrain();
+		void this.kickDrain();
 	}
 
 	private getActiveSuppression(path: string): SuppressionEntry | null {
