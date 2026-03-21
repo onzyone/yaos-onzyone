@@ -209,6 +209,15 @@ function guessMime(path: string): string {
 	return mimes[ext] ?? "application/octet-stream";
 }
 
+function isAlreadyExistsError(error: unknown): boolean {
+	if (typeof error === "object" && error !== null && "code" in error) {
+		const code = (error as { code?: unknown }).code;
+		if (code === "EEXIST") return true;
+	}
+	const message = error instanceof Error ? error.message : String(error);
+	return message.toLowerCase().includes("exists");
+}
+
 // -------------------------------------------------------------------
 // Queue item types
 // -------------------------------------------------------------------
@@ -281,6 +290,8 @@ export class BlobSyncManager {
 	private uploadDraining = false;
 	/** True while download drain is running. */
 	private downloadDraining = false;
+	/** Blocks startup-time download execution until the local vault model is ready. */
+	private downloadGateOpen = false;
 
 	/** Path suppression to prevent upload-on-own-download loops. */
 	private suppressedPaths = new Map<string, number>();
@@ -795,6 +806,7 @@ export class BlobSyncManager {
 	}
 
 	private kickDownloadDrain(): void {
+		if (!this.downloadGateOpen) return;
 		if (this.downloadDraining) return;
 		void this.drainDownloads();
 	}
@@ -890,11 +902,42 @@ export class BlobSyncManager {
 				if (dir) {
 					const dirExists = this.app.vault.getAbstractFileByPath(normalizePath(dir));
 					if (!dirExists) {
-						await this.app.vault.createFolder(dir);
+						try {
+							await this.app.vault.createFolder(dir);
+						} catch (err) {
+							if (!isAlreadyExistsError(err)) throw err;
+						}
 					}
 				}
-				await this.app.vault.createBinary(normalized, data);
-				this.log(`download: created "${item.path}" (${data.byteLength} bytes) in ${Date.now() - start}ms`);
+				try {
+					await this.app.vault.createBinary(normalized, data);
+					this.log(`download: created "${item.path}" (${data.byteLength} bytes) in ${Date.now() - start}ms`);
+				} catch (err) {
+					if (!isAlreadyExistsError(err)) throw err;
+					const resolved = this.app.vault.getAbstractFileByPath(normalized);
+					if (!(resolved instanceof TFile)) throw err;
+
+					const fileStat = { mtime: resolved.stat.mtime, size: resolved.stat.size };
+					let diskHash = getCachedHash(this.hashCache, item.path, fileStat);
+					if (!diskHash) {
+						const existingData = await this.app.vault.readBinary(resolved);
+						diskHash = await hashArrayBuffer(existingData);
+						setCachedHash(this.hashCache, item.path, fileStat, diskHash);
+					}
+
+					if (diskHash === item.hash) {
+						this.log(
+							`download: "${item.path}" already matches after create race, skipping ` +
+							`in ${Date.now() - start}ms`,
+						);
+					} else {
+						await this.app.vault.modifyBinary(resolved, data);
+						this.log(
+							`download: updated "${item.path}" after create race ` +
+							`(${data.byteLength} bytes) in ${Date.now() - start}ms`,
+						);
+					}
+				}
 			}
 
 			// Update hash cache with the freshly-written file's hash.
@@ -1171,6 +1214,37 @@ export class BlobSyncManager {
 		}
 	}
 
+	openDownloadGate(reason: string): void {
+		if (this.downloadGateOpen) return;
+		this.downloadGateOpen = true;
+		this.log(`Download gate opened (${reason})`);
+		const dropped = this.pruneSatisfiedQueuedDownloads();
+		if (dropped > 0) {
+			this.log(`Download gate: dropped ${dropped} stale queued downloads`);
+		}
+		if (this.downloadQueue.size > 0) {
+			this.log(`Download gate: draining ${this.downloadQueue.size} queued downloads`);
+		}
+		this.kickDownloadDrain();
+	}
+
+	private pruneSatisfiedQueuedDownloads(): number {
+		let dropped = 0;
+		for (const [path, item] of this.downloadQueue) {
+			if (item.status !== "pending") continue;
+			const existing = this.app.vault.getAbstractFileByPath(normalizePath(path));
+			if (!(existing instanceof TFile)) continue;
+
+			const fileStat = { mtime: existing.stat.mtime, size: existing.stat.size };
+			const cachedHash = getCachedHash(this.hashCache, path, fileStat);
+			if (cachedHash !== item.hash) continue;
+
+			this.downloadQueue.delete(path);
+			dropped++;
+		}
+		return dropped;
+	}
+
 	// -------------------------------------------------------------------
 	// Cleanup
 	// -------------------------------------------------------------------
@@ -1200,16 +1274,17 @@ export class BlobSyncManager {
 
 	getDebugSnapshot(): {
 		pendingUploads: number;
-		pendingDownloads: number;
-		processingUploads: number;
-		processingDownloads: number;
-		uploadDraining: boolean;
-		downloadDraining: boolean;
-		suppressedCount: number;
-		uploadQueue: string[];
-		downloadQueue: string[];
-		inflightUploads: string[];
-		inflightDownloads: string[];
+			pendingDownloads: number;
+			processingUploads: number;
+			processingDownloads: number;
+			uploadDraining: boolean;
+			downloadDraining: boolean;
+			downloadGateOpen: boolean;
+			suppressedCount: number;
+			uploadQueue: string[];
+			downloadQueue: string[];
+			inflightUploads: string[];
+			inflightDownloads: string[];
 	} {
 		return {
 			pendingUploads: this.pendingUploadCount(),
@@ -1218,6 +1293,7 @@ export class BlobSyncManager {
 			processingDownloads: this.inflightDownloads.size,
 			uploadDraining: this.uploadDraining,
 			downloadDraining: this.downloadDraining,
+			downloadGateOpen: this.downloadGateOpen,
 			suppressedCount: this.suppressedPaths.size,
 			uploadQueue: Array.from(this.uploadQueue.values())
 				.filter((item) => item.status === "pending")
@@ -1235,5 +1311,9 @@ export class BlobSyncManager {
 		if (this.debug) {
 			console.debug(`[yaos:blob] ${msg}`);
 		}
+	}
+
+	get isDownloadGateOpen(): boolean {
+		return this.downloadGateOpen;
 	}
 }

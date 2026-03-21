@@ -205,6 +205,11 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 	 * provider sync event, even if connection generation did not change.
 	 */
 	private awaitingFirstProviderSyncAfterStartup = false;
+	/** Host workspace/layout reached a usable post-boot state. */
+	private blobDownloadGateLayoutReady = false;
+	/** YAOS startup/reconciliation has completed enough to trust local attachment presence checks. */
+	private blobDownloadGateStartupReady = false;
+
 	private isMarkdownPathSyncable(path: string): boolean {
 		return isMarkdownSyncable(path, this.excludePatterns, this.app.vault.configDir);
 	}
@@ -233,6 +238,16 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		}
 
 		this.setupTraceLogger();
+		this.blobDownloadGateLayoutReady = this.app.workspace.layoutReady;
+		this.app.workspace.onLayoutReady(() => {
+			const firstReady = !this.blobDownloadGateLayoutReady;
+			this.blobDownloadGateLayoutReady = true;
+			if (firstReady) {
+				this.trace("trace", "blob-download-layout-ready", {});
+				this.log("Blob download gate: workspace layout ready");
+			}
+			this.maybeOpenBlobDownloadGate("layout-ready");
+		});
 		if (generatedVaultId) {
 			this.log(`Generated vault ID: ${this.settings.vaultId}`);
 		}
@@ -303,6 +318,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 
 	private async initSync(): Promise<void> {
 		const initSyncStartedAt = Date.now();
+		this.blobDownloadGateStartupReady = false;
 		this.trace("trace", "startup-init-sync-start", {
 			hostConfigured: !!this.settings.host,
 			tokenConfigured: !!this.settings.token,
@@ -489,6 +505,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			});
 			this.log("Startup complete");
 			this.scheduleTraceStateSnapshot("startup-complete");
+			this.markBlobDownloadStartupReady("startup-complete");
 			void this.refreshServerTrace();
 
 			// Trigger daily snapshot (noop if already taken today).
@@ -2515,6 +2532,8 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			this.savedBlobQueue = null;
 		}
 
+		this.maybeOpenBlobDownloadGate(`engine-start:${reason}`);
+
 		if (runInitialReconcile) {
 			try {
 				const result = await this.blobSync.reconcile("authoritative", this.excludePatterns);
@@ -2537,6 +2556,26 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		this.blobSync.destroy();
 		this.blobSync = null;
 		this.log(`Attachment sync engine stopped (${reason})`);
+	}
+
+	private maybeOpenBlobDownloadGate(reason: string): void {
+		if (!this.blobSync) return;
+		if (this.blobSync.isDownloadGateOpen) return;
+		if (!this.blobDownloadGateLayoutReady || !this.blobDownloadGateStartupReady) return;
+		this.trace("trace", "blob-download-gate-open", {
+			reason,
+			pendingDownloads: this.blobSync.pendingDownloads,
+		});
+		this.blobSync.openDownloadGate(reason);
+		this.scheduleTraceStateSnapshot(`blob-download-gate:${reason}`);
+	}
+
+	private markBlobDownloadStartupReady(reason: string): void {
+		if (this.blobDownloadGateStartupReady) return;
+		this.blobDownloadGateStartupReady = true;
+		this.trace("trace", "blob-download-startup-ready", { reason });
+		this.log(`Blob download gate: startup ready (${reason})`);
+		this.maybeOpenBlobDownloadGate(`startup-ready:${reason}`);
 	}
 
 	async refreshAttachmentSyncRuntime(reason = "settings-change"): Promise<void> {
