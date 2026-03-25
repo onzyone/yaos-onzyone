@@ -34,6 +34,14 @@ const recommendedPluginVersion = readStringConst(
 	serverVersionSource,
 	"SERVER_RECOMMENDED_PLUGIN_VERSION",
 );
+const minCompatibleServerVersionForPlugin = readStringConst(
+	serverVersionSource,
+	"SERVER_MIN_COMPATIBLE_SERVER_VERSION_FOR_PLUGIN",
+);
+const minCompatiblePluginVersionForServer = readStringConst(
+	serverVersionSource,
+	"SERVER_MIN_COMPATIBLE_PLUGIN_VERSION_FOR_SERVER",
+);
 const migrationRequired = readBooleanConst(
 	serverVersionSource,
 	"SERVER_MIGRATION_REQUIRED",
@@ -51,11 +59,11 @@ const updateManifest = {
 	releaseType: migrationRequired ? "migration-required" : "compatible",
 	migrationRequired,
 	autoUpdateEligible: false,
-	minCompatibleServerVersionForPlugin: serverVersion,
-	minCompatiblePluginVersionForServer: recommendedPluginVersion,
+	minCompatibleServerVersionForPlugin,
+	minCompatiblePluginVersionForServer,
 	upgradeOrder: "either",
 	releaseNotesUrl: `https://github.com/kavinsood/yaos/releases/tag/${rootPackage.version}`,
-	upgradeGuideUrl: "https://yaos.dev/update",
+	upgradeGuideUrl: "https://github.com/kavinsood/yaos#updating-your-server",
 };
 
 const serverZipManifest = {
@@ -63,7 +71,6 @@ const serverZipManifest = {
 	pluginVersion: pluginManifest.version,
 	protectedFiles: ["wrangler.toml"],
 	updateOwnedPaths: [
-		".github",
 		".gitlab-ci.yml",
 		"package.json",
 		"package-lock.json",
@@ -80,7 +87,6 @@ mkdirSync(serverTempDir, { recursive: true });
 for (const relativePath of [
 	"package.json",
 	"package-lock.json",
-	".github",
 	".gitlab-ci.yml",
 	"scripts",
 	"tsconfig.json",
