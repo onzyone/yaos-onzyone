@@ -5,6 +5,7 @@ import { randomBase64Url } from "./utils/base64url";
 
 /** Controls how external disk edits (git, other editors) are imported into CRDT. */
 export type ExternalEditPolicy = "always" | "closed-only" | "never";
+export type UpdateProvider = "github" | "gitlab" | "unknown";
 
 export interface VaultSyncSettings {
 	/** Cloudflare Worker host, e.g. "https://sync.yourdomain.com" */
@@ -38,6 +39,12 @@ export interface VaultSyncSettings {
 	attachmentConcurrency: number;
 	/** Show remote cursors and selections in the editor. */
 	showRemoteCursors: boolean;
+	/** Optional Git provider hosting the generated Cloudflare deployment repo. */
+	updateProvider: UpdateProvider | "";
+	/** Optional repo URL used to deep-link provider-native update pages. */
+	updateRepoUrl: string;
+	/** Optional default branch for provider-native update links. */
+	updateRepoBranch: string;
 }
 
 export const DEFAULT_SETTINGS: VaultSyncSettings = {
@@ -55,6 +62,9 @@ export const DEFAULT_SETTINGS: VaultSyncSettings = {
 	// requestUrl cannot be hard-aborted; default to 1 to avoid stacked zombie transfers.
 	attachmentConcurrency: 1,
 	showRemoteCursors: true,
+	updateProvider: "",
+	updateRepoUrl: "",
+	updateRepoBranch: "main",
 };
 
 const CLOUDFLARE_DEPLOY_URL = "https://deploy.workers.cloudflare.com/?url=https://github.com/kavinsood/yaos/tree/main/server";
@@ -369,6 +379,52 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 			});
 		}
 
+		if (!setupIncomplete) {
+			const updateState = this.plugin.getUpdateState();
+			addSectionHeading(containerEl, "Updates");
+
+			const updateCard = containerEl.createDiv({ cls: "yaos-settings-status-card" });
+			addCardRow(updateCard, "Server version", updateState.serverVersion ?? "Unknown");
+			addCardRow(updateCard, "Latest server", updateState.latestServerVersion ?? "Unknown");
+			addCardRow(updateCard, "Plugin version", updateState.pluginVersion);
+			addCardRow(updateCard, "Latest plugin", updateState.latestPluginVersion ?? "Unknown");
+			addCardRow(
+				updateCard,
+				"Update path",
+				updateState.updateRepoUrl ?? "Using the generic YAOS update guide",
+			);
+
+			const summaryText = updateState.serverUpdateAvailable
+				? updateState.migrationRequired
+					? "A migration-sensitive server update is available. Use the guided update path."
+					: "A server update is available."
+				: updateState.pluginUpdateRecommended
+					? "This device should update the YAOS plugin soon."
+					: "Server and plugin are up to date with the latest cached manifest.";
+			updateCard.createEl("p", {
+				text: summaryText,
+				cls: "yaos-settings-status-subtitle",
+			});
+
+			if (updateState.pluginCompatibilityWarning) {
+				updateCard.createEl("p", {
+					text: updateState.pluginCompatibilityWarning,
+					cls: "yaos-settings-security-warning",
+				});
+			}
+
+			const updateActions = updateCard.createDiv({ cls: "modal-button-container yaos-settings-status-actions" });
+			updateActions.createEl("button", { text: "Refresh update info" }).addEventListener("click", () => {
+				void this.plugin.refreshServerCapabilities("settings-refresh");
+				void this.plugin.refreshUpdateManifest("settings-refresh", true).then(() => this.display());
+			});
+			updateActions.createEl("button", {
+				text: updateState.updateActionUrl ? "Open update action" : "Open update guide",
+			}).addEventListener("click", () => {
+				window.open(updateState.updateActionUrl ?? updateState.updateGuideUrl, "_blank", "noopener");
+			});
+		}
+
 		addSectionHeading(containerEl, "This device");
 		new Setting(containerEl)
 			.setName("Device name")
@@ -573,6 +629,49 @@ export class VaultSyncSettingTab extends PluginSettingTab {
 						this.display();
 					}),
 			);
+
+			new Setting(advancedBody)
+				.setName("Deployment provider")
+				.setDesc("Optional. Used to deep-link the provider-native server update page.")
+				.addDropdown((dropdown) =>
+					dropdown
+						.addOption("", "Unknown")
+						.addOption("github", "GitHub")
+						.addOption("gitlab", "GitLab")
+						.setValue(this.plugin.settings.updateProvider)
+						.onChange(async (value) => {
+							this.plugin.settings.updateProvider = value as UpdateProvider | "";
+							await this.plugin.saveSettings();
+							this.display();
+						}),
+				);
+
+			new Setting(advancedBody)
+				.setName("Deployment repo URL")
+				.setDesc("Optional. Example: https://github.com/you/yaos-server")
+				.addText((text) =>
+					text
+						.setPlaceholder("Paste the generated GitHub or GitLab repo URL")
+						.setValue(this.plugin.settings.updateRepoUrl)
+						.onChange(async (value) => {
+							this.plugin.settings.updateRepoUrl = value.trim();
+							await this.plugin.saveSettings();
+							this.display();
+						}),
+				);
+
+			new Setting(advancedBody)
+				.setName("Deployment default branch")
+				.setDesc("Used for GitLab pipeline links and future provider-native update helpers.")
+				.addText((text) =>
+					text
+						.setPlaceholder("main")
+						.setValue(this.plugin.settings.updateRepoBranch)
+						.onChange(async (value) => {
+							this.plugin.settings.updateRepoBranch = value.trim() || "main";
+							await this.plugin.saveSettings();
+						}),
+				);
 
 			new Setting(advancedBody)
 				.setName("Edits from other apps")

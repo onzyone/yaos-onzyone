@@ -12,6 +12,14 @@ import {
 	type SnapshotResult,
 } from "./snapshot";
 import { renderMobileSetupPage, renderRunningPage, renderSetupPage } from "./setupPage";
+import {
+	SERVER_MAX_SCHEMA_VERSION,
+	SERVER_MIGRATION_REQUIRED,
+	SERVER_MIN_PLUGIN_VERSION,
+	SERVER_MIN_SCHEMA_VERSION,
+	SERVER_RECOMMENDED_PLUGIN_VERSION,
+	SERVER_VERSION,
+} from "./version";
 import { VaultSyncServer } from "./server";
 
 const MAX_BLOB_UPLOAD_BYTES = 10 * 1024 * 1024;
@@ -32,6 +40,8 @@ type AuthState =
 	| { mode: "env"; claimed: true; envToken: string }
 	| { mode: "claim"; claimed: true; tokenHash: string }
 	| { mode: "unclaimed"; claimed: false };
+
+type UpdateProvider = "github" | "gitlab" | "unknown";
 
 type FatalAuthCode = "unauthorized" | "server_misconfigured" | "unclaimed" | "update_required";
 const LEGACY_CLIENT_SCHEMA_VERSION = 1;
@@ -248,6 +258,14 @@ function getCapabilities(auth: AuthState, env: Env): {
 	authMode: "env" | "claim" | "unclaimed";
 	attachments: boolean;
 	snapshots: boolean;
+	serverVersion: string;
+	minPluginVersion: string | null;
+	recommendedPluginVersion: string | null;
+	minSchemaVersion: number | null;
+	maxSchemaVersion: number | null;
+	migrationRequired: boolean;
+	updateProvider: UpdateProvider | null;
+	updateRepoUrl: string | null;
 } {
 	const bucketEnabled = supportsBuckets(env);
 	return {
@@ -255,6 +273,14 @@ function getCapabilities(auth: AuthState, env: Env): {
 		authMode: auth.mode,
 		attachments: bucketEnabled,
 		snapshots: bucketEnabled,
+		serverVersion: SERVER_VERSION,
+		minPluginVersion: SERVER_MIN_PLUGIN_VERSION,
+		recommendedPluginVersion: SERVER_RECOMMENDED_PLUGIN_VERSION,
+		minSchemaVersion: SERVER_MIN_SCHEMA_VERSION,
+		maxSchemaVersion: SERVER_MAX_SCHEMA_VERSION,
+		migrationRequired: SERVER_MIGRATION_REQUIRED,
+		updateProvider: null,
+		updateRepoUrl: null,
 	};
 }
 

@@ -5,6 +5,14 @@ export interface ServerCapabilities {
 	authMode: "env" | "claim" | "unclaimed";
 	attachments: boolean;
 	snapshots: boolean;
+	serverVersion: string;
+	minPluginVersion: string | null;
+	recommendedPluginVersion: string | null;
+	minSchemaVersion: number | null;
+	maxSchemaVersion: number | null;
+	migrationRequired: boolean;
+	updateProvider: "github" | "gitlab" | "unknown" | null;
+	updateRepoUrl: string | null;
 }
 
 export async function fetchServerCapabilities(host: string): Promise<ServerCapabilities> {

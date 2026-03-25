@@ -9,7 +9,7 @@ import { randomBase64Url } from "../utils/base64url";
 import { formatUnknown } from "../utils/format";
 
 /** Current schema version. Stored in sys.schemaVersion. */
-const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 2;
 
 /** Timeouts for the startup sequence. */
 const LOCAL_PERSISTENCE_TIMEOUT_MS = 3_000;

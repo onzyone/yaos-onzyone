@@ -6,6 +6,7 @@ import {
 	type VaultSyncSettings,
 } from "./settings";
 import { VaultSync, type ReconcileMode } from "./sync/vaultSync";
+import { SCHEMA_VERSION } from "./sync/vaultSync";
 import { EditorBindingManager } from "./sync/editorBinding";
 import { DiskMirror } from "./sync/diskMirror";
 import { BlobSyncManager, type BlobQueueSnapshot } from "./sync/blobSync";
@@ -14,6 +15,11 @@ import {
 	fetchServerCapabilities,
 	type ServerCapabilities,
 } from "./sync/serverCapabilities";
+import {
+	fetchUpdateManifest,
+	isUpdateManifest,
+	type UpdateManifest,
+} from "./update/updateManifest";
 import { isMarkdownSyncable, isBlobSyncable } from "./types";
 import { applyDiffToYText } from "./sync/diff";
 import {
@@ -45,6 +51,7 @@ import {
 	type TraceHttpContext,
 } from "./debug/trace";
 import { formatUnknown, yTextToString } from "./utils/format";
+import { compareSemver } from "./utils/semver";
 import { obsidianRequest } from "./utils/http";
 
 type SyncStatus = "disconnected" | "loading" | "syncing" | "connected" | "offline" | "error" | "unauthorized";
@@ -54,11 +61,17 @@ type PersistedServerCapabilitiesCache = {
 	capabilities: ServerCapabilities;
 };
 
+type PersistedUpdateManifestCache = {
+	fetchedAt: number;
+	manifest: UpdateManifest;
+};
+
 type PersistedPluginState = Partial<VaultSyncSettings> & {
 	_diskIndex?: DiskIndex;
 	_blobHashCache?: BlobHashCache;
 	_blobQueue?: BlobQueueSnapshot;
 	_serverCapabilitiesCache?: PersistedServerCapabilitiesCache;
+	_updateManifestCache?: PersistedUpdateManifestCache;
 };
 
 /** Minimum interval between reconcile runs (prevents rapid reconnect churn). */
@@ -70,6 +83,8 @@ const MARKDOWN_DIRTY_SETTLE_MS = 350;
 const OPEN_FILE_EXTERNAL_EDIT_IDLE_GRACE_MS = 1200;
 const BOUND_RECOVERY_LOCK_MS = 1500;
 const CAPABILITY_REFRESH_INTERVAL_MS = 30_000;
+const UPDATE_MANIFEST_URL = "https://yaos.dev/update-manifest.json";
+const UPDATE_MANIFEST_CACHE_MS = 24 * 60 * 60 * 1000;
 
 function isServerCapabilities(value: unknown): value is ServerCapabilities {
 	if (typeof value !== "object" || value === null) return false;
@@ -77,7 +92,18 @@ function isServerCapabilities(value: unknown): value is ServerCapabilities {
 	return typeof candidate.claimed === "boolean" &&
 		(candidate.authMode === "env" || candidate.authMode === "claim" || candidate.authMode === "unclaimed") &&
 		typeof candidate.attachments === "boolean" &&
-		typeof candidate.snapshots === "boolean";
+		typeof candidate.snapshots === "boolean" &&
+		typeof candidate.serverVersion === "string" &&
+		(candidate.minPluginVersion === null || typeof candidate.minPluginVersion === "string") &&
+		(candidate.recommendedPluginVersion === null || typeof candidate.recommendedPluginVersion === "string") &&
+		(candidate.minSchemaVersion === null || typeof candidate.minSchemaVersion === "number") &&
+		(candidate.maxSchemaVersion === null || typeof candidate.maxSchemaVersion === "number") &&
+		typeof candidate.migrationRequired === "boolean" &&
+		(candidate.updateProvider === null ||
+			candidate.updateProvider === "github" ||
+			candidate.updateProvider === "gitlab" ||
+			candidate.updateProvider === "unknown") &&
+		(candidate.updateRepoUrl === null || typeof candidate.updateRepoUrl === "string");
 }
 
 function readPersistedServerCapabilitiesCache(value: unknown): PersistedServerCapabilitiesCache | null {
@@ -92,6 +118,21 @@ function readPersistedServerCapabilitiesCache(value: unknown): PersistedServerCa
 	return {
 		host: candidate.host,
 		capabilities: candidate.capabilities,
+	};
+}
+
+function readPersistedUpdateManifestCache(value: unknown): PersistedUpdateManifestCache | null {
+	if (typeof value !== "object" || value === null) return null;
+	const candidate = value as {
+		fetchedAt?: unknown;
+		manifest?: unknown;
+	};
+	if (typeof candidate.fetchedAt !== "number" || !isUpdateManifest(candidate.manifest)) {
+		return null;
+	}
+	return {
+		fetchedAt: candidate.fetchedAt,
+		manifest: candidate.manifest,
 	};
 }
 
@@ -196,6 +237,11 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 	private serverCapabilities: ServerCapabilities | null = null;
 	private capabilityRefreshPromise: Promise<void> | null = null;
 	private lastCapabilityRefreshAt = 0;
+	private updateManifest: UpdateManifest | null = null;
+	private updateManifestFetchedAt = 0;
+	private updateManifestRefreshPromise: Promise<void> | null = null;
+	private lastServerUpdateNoticeVersion: string | null = null;
+	private lastPluginUpdateNoticeVersion: string | null = null;
 	private commandsRegistered = false;
 	private idbDegradedHandled = false;
 
@@ -270,6 +316,7 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 
 		if (this.settings.host) {
 			void this.refreshServerCapabilities("startup-background");
+			void this.refreshUpdateManifest("startup-background");
 		}
 
 		if (!this.settings.host) {
@@ -2427,6 +2474,14 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 		} else {
 			this.serverCapabilities = null;
 		}
+		const cachedUpdateManifest = readPersistedUpdateManifestCache(data?._updateManifestCache);
+		if (cachedUpdateManifest) {
+			this.updateManifest = cachedUpdateManifest.manifest;
+			this.updateManifestFetchedAt = cachedUpdateManifest.fetchedAt;
+		} else {
+			this.updateManifest = null;
+			this.updateManifestFetchedAt = 0;
+		}
 		this.refreshPersistedState();
 		if (migratedSettings) {
 			await this.persistPluginState();
@@ -2642,6 +2697,9 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			authMode: this.serverCapabilities?.authMode ?? null,
 			attachments: this.serverCapabilities?.attachments ?? null,
 			snapshots: this.serverCapabilities?.snapshots ?? null,
+			serverVersion: this.serverCapabilities?.serverVersion ?? null,
+			migrationRequired: this.serverCapabilities?.migrationRequired ?? null,
+			updateProvider: this.serverCapabilities?.updateProvider ?? null,
 		});
 	}
 
@@ -2658,13 +2716,19 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			prevAttachments !== nextAttachments ||
 			prevSnapshots !== nextSnapshots ||
 			previous?.authMode !== next?.authMode ||
-			previous?.claimed !== next?.claimed;
+			previous?.claimed !== next?.claimed ||
+			previous?.serverVersion !== next?.serverVersion ||
+			previous?.migrationRequired !== next?.migrationRequired ||
+			previous?.updateProvider !== next?.updateProvider ||
+			previous?.updateRepoUrl !== next?.updateRepoUrl;
 		if (!changed) return;
 
 		this.log(
 			`Server capabilities updated (${reason}): ` +
 			`claimed=${next?.claimed ?? "unknown"} auth=${next?.authMode ?? "unknown"} ` +
-			`attachments=${nextAttachments ?? "unknown"} snapshots=${nextSnapshots ?? "unknown"}`,
+			`attachments=${nextAttachments ?? "unknown"} snapshots=${nextSnapshots ?? "unknown"} ` +
+			`serverVersion=${next?.serverVersion ?? "unknown"} migrationRequired=${next?.migrationRequired ?? "unknown"} ` +
+			`updateProvider=${next?.updateProvider ?? "unknown"}`,
 		);
 		void this.persistPluginState();
 		this.scheduleTraceStateSnapshot(`capabilities:${reason}`);
@@ -2691,6 +2755,185 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 					7000,
 				);
 			}
+		this.maybeShowUpdateNotices(reason);
+	}
+
+	async refreshUpdateManifest(reason = "manual", force = false): Promise<void> {
+		if (this.updateManifestRefreshPromise) {
+			return await this.updateManifestRefreshPromise;
+		}
+
+		this.updateManifestRefreshPromise = this.refreshUpdateManifestInner(reason, force)
+			.finally(() => {
+				this.updateManifestRefreshPromise = null;
+			});
+		return await this.updateManifestRefreshPromise;
+	}
+
+	private async refreshUpdateManifestInner(reason: string, force: boolean): Promise<void> {
+		const startedAt = Date.now();
+		const cacheAgeMs = startedAt - this.updateManifestFetchedAt;
+		if (!force && this.updateManifest && cacheAgeMs >= 0 && cacheAgeMs < UPDATE_MANIFEST_CACHE_MS) {
+			this.trace("trace", "update-manifest-refresh-end", {
+				reason,
+				durationMs: Date.now() - startedAt,
+				outcome: "cached",
+				cacheAgeMs,
+				latestServerVersion: this.updateManifest.latestServerVersion,
+				latestPluginVersion: this.updateManifest.latestPluginVersion,
+			});
+			this.maybeShowUpdateNotices(`manifest-cache:${reason}`);
+			return;
+		}
+
+		this.trace("trace", "update-manifest-refresh-start", {
+			reason,
+			url: UPDATE_MANIFEST_URL,
+			cacheAgeMs: this.updateManifestFetchedAt > 0 ? cacheAgeMs : null,
+		});
+
+		try {
+			this.updateManifest = await fetchUpdateManifest(UPDATE_MANIFEST_URL);
+			this.updateManifestFetchedAt = Date.now();
+			await this.persistPluginState();
+			this.trace("trace", "update-manifest-refresh-end", {
+				reason,
+				durationMs: Date.now() - startedAt,
+				outcome: "ok",
+				latestServerVersion: this.updateManifest.latestServerVersion,
+				latestPluginVersion: this.updateManifest.latestPluginVersion,
+			});
+		} catch (err) {
+			this.log(`Update manifest fetch failed: ${formatUnknown(err)}`);
+			this.trace("trace", "update-manifest-refresh-end", {
+				reason,
+				durationMs: Date.now() - startedAt,
+				outcome: "error",
+				error: formatUnknown(err),
+			});
+			return;
+		}
+
+		this.maybeShowUpdateNotices(reason);
+	}
+
+	private maybeShowUpdateNotices(reason: string): void {
+		const updateState = this.getUpdateState();
+		if (updateState.serverUpdateAvailable && updateState.latestServerVersion) {
+			if (this.lastServerUpdateNoticeVersion !== updateState.latestServerVersion) {
+				const actionLabel = updateState.updateActionLabel;
+				new Notice(
+					updateState.migrationRequired
+						? `YAOS: a server migration update (${updateState.latestServerVersion}) is available. Open ${actionLabel} before updating.`
+						: `YAOS: a server update (${updateState.latestServerVersion}) is available. Open ${actionLabel} to update when ready.`,
+					10000,
+				);
+				this.lastServerUpdateNoticeVersion = updateState.latestServerVersion;
+				this.log(
+					`Update notice (${reason}): server ${updateState.serverVersion ?? "unknown"} -> ${updateState.latestServerVersion}`,
+				);
+			}
+		}
+
+		if (updateState.pluginUpdateRecommended && updateState.latestPluginVersion) {
+			if (this.lastPluginUpdateNoticeVersion !== updateState.latestPluginVersion) {
+				new Notice(
+					`YAOS: plugin update recommended (${updateState.latestPluginVersion}). Update this device to stay current with server compatibility guidance.`,
+					10000,
+				);
+				this.lastPluginUpdateNoticeVersion = updateState.latestPluginVersion;
+				this.log(
+					`Update notice (${reason}): plugin ${this.manifest.version} -> ${updateState.latestPluginVersion}`,
+				);
+			}
+		}
+	}
+
+	getUpdateState(): {
+		serverVersion: string | null;
+		latestServerVersion: string | null;
+		serverUpdateAvailable: boolean;
+		pluginVersion: string;
+		latestPluginVersion: string | null;
+		pluginUpdateRecommended: boolean;
+		migrationRequired: boolean;
+		updateProvider: VaultSyncSettings["updateProvider"] | ServerCapabilities["updateProvider"];
+		updateRepoUrl: string | null;
+		updateActionUrl: string | null;
+		updateActionLabel: string;
+		updateGuideUrl: string;
+		pluginCompatibilityWarning: string | null;
+	} {
+		const serverVersion = this.serverCapabilities?.serverVersion ?? null;
+		const latestServerVersion = this.updateManifest?.latestServerVersion ?? null;
+		const serverUpdateAvailable =
+			serverVersion !== null &&
+			latestServerVersion !== null &&
+			compareSemver(serverVersion, latestServerVersion) === -1;
+
+		const latestPluginVersion = this.updateManifest?.latestPluginVersion ?? null;
+		const pluginUpdateRecommended =
+			latestPluginVersion !== null &&
+			compareSemver(this.manifest.version, latestPluginVersion) === -1;
+
+		const effectiveProvider = this.settings.updateProvider ||
+			this.serverCapabilities?.updateProvider ||
+			null;
+		const effectiveRepoUrl = this.settings.updateRepoUrl.trim() ||
+			this.serverCapabilities?.updateRepoUrl ||
+			null;
+
+		let pluginCompatibilityWarning: string | null = null;
+		const minPluginVersion = this.serverCapabilities?.minPluginVersion ?? null;
+		if (minPluginVersion && compareSemver(this.manifest.version, minPluginVersion) === -1) {
+			pluginCompatibilityWarning =
+				`This server requires YAOS plugin ${minPluginVersion} or newer.`;
+		} else {
+			const minSchemaVersion = this.serverCapabilities?.minSchemaVersion ?? null;
+			const maxSchemaVersion = this.serverCapabilities?.maxSchemaVersion ?? null;
+			if (minSchemaVersion !== null && SCHEMA_VERSION < minSchemaVersion) {
+				pluginCompatibilityWarning =
+					`This server requires schema version ${minSchemaVersion} or newer.`;
+			} else if (maxSchemaVersion !== null && SCHEMA_VERSION > maxSchemaVersion) {
+				pluginCompatibilityWarning =
+					`This plugin uses schema version ${SCHEMA_VERSION}, but the server currently supports up to ${maxSchemaVersion}.`;
+			}
+		}
+
+		return {
+			serverVersion,
+			latestServerVersion,
+			serverUpdateAvailable,
+			pluginVersion: this.manifest.version,
+			latestPluginVersion,
+			pluginUpdateRecommended,
+			migrationRequired: this.updateManifest?.migrationRequired ?? this.serverCapabilities?.migrationRequired ?? false,
+			updateProvider: effectiveProvider,
+			updateRepoUrl: effectiveRepoUrl,
+			updateActionUrl: this.buildServerUpdateUrl(),
+			updateActionLabel: effectiveRepoUrl
+				? effectiveProvider === "gitlab"
+					? "your GitLab pipeline"
+					: "your GitHub workflow"
+				: "the YAOS update guide",
+			updateGuideUrl: this.updateManifest?.upgradeGuideUrl ?? "https://yaos.dev/update",
+			pluginCompatibilityWarning,
+		};
+	}
+
+	buildServerUpdateUrl(): string | null {
+		const repoUrl = this.settings.updateRepoUrl.trim() || this.serverCapabilities?.updateRepoUrl;
+		const provider = this.settings.updateProvider || this.serverCapabilities?.updateProvider;
+		if (!repoUrl || !provider) return null;
+		const normalizedRepoUrl = repoUrl.replace(/\/+$/, "");
+		const branch = this.settings.updateRepoBranch.trim() || "main";
+		if (provider === "github") {
+			return `${normalizedRepoUrl}/actions/workflows/update-yaos.yml`;
+		}
+		if (provider === "gitlab") {
+			return `${normalizedRepoUrl}/-/pipelines/new?ref=${encodeURIComponent(branch)}`;
+		}
+		return null;
 	}
 
 		private async confirmVaultIdSwitch(
@@ -2838,6 +3081,14 @@ export default class VaultCrdtSyncPlugin extends Plugin {
 			};
 		} else {
 			delete nextState._serverCapabilitiesCache;
+		}
+		if (this.updateManifest && this.updateManifestFetchedAt > 0) {
+			nextState._updateManifestCache = {
+				fetchedAt: this.updateManifestFetchedAt,
+				manifest: this.updateManifest,
+			};
+		} else {
+			delete nextState._updateManifestCache;
 		}
 		this.persistedState = nextState;
 	}

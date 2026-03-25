@@ -1,0 +1,46 @@
+name: Update YAOS Server
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Optional YAOS release tag to install (defaults to latest)"
+        required: false
+        type: string
+      release_repo:
+        description: "Optional owner/repo to pull releases from"
+        required: false
+        default: "kavinsood/yaos"
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Apply YAOS server artifact
+        env:
+          YAOS_RELEASE_REPO: ${{ inputs.release_repo }}
+          YAOS_RELEASE_VERSION: ${{ inputs.version }}
+        run: node scripts/update-from-release.mjs
+
+      - name: Commit and push if changed
+        run: |
+          if git diff --quiet; then
+            echo "No YAOS server changes to commit."
+            exit 0
+          fi
+          VERSION="$(node -p "require('./package.json').version")"
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "yaos(server): update to ${VERSION}"
+          git push
