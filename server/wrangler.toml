@@ -14,5 +14,9 @@ class_name = "ServerConfig"
 tag = "v1"
 new_sqlite_classes = ["VaultSyncServer", "ServerConfig"]
 
+[[r2_buckets]]
+binding = "YAOS_BUCKET"
+bucket_name = "yaos-camping"
+
 [observability.logs]
 enabled = true
